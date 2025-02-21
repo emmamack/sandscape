@@ -76,16 +76,19 @@ def parse_multiple_curves(curves_raw):
     pts = [Point(x=0, y=0)]
     for curve in curves:
         prev_pt = pts[-1]
-        # if curve.marker=='M':
-        #   capital letter means absolutely positioned
-        if curve.marker=='m':
+        if curve.marker=='M' or curve.marker=="L": # moveto, lineto (absolute)
+            # svg defines M and L as different, but since the ball can't float, to us they are the same
+            pts.append(Point(x=curve.body[0], y=curve.body[1]))
+        elif curve.marker=='m' or curve.marker=="l": # moveto, lineto (relative)
             pts.append(Point(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1]))
-        if curve.marker=='h':
+        elif curve.marker=='h': # horizontal line
             pts.append(Point(x=prev_pt.x+curve.body[0], y=prev_pt.y))
-        if curve.marker=='v':
+        elif curve.marker=='v': # vertical line
             pts.append(Point(x=prev_pt.x, y=prev_pt.y+curve.body[0]))
-        if curve.marker=='c':
+        elif curve.marker=='c': # bezier curve
             pts.extend(discretize_bezier(curve.body, prev_pt))
+        elif curve.marker=='z': # end of curve
+            pass
         else:
             print(f"Encountered unexpected curve marker: {curve.marker}")
     
@@ -123,9 +126,7 @@ def get_pts_from_file(file):
 
     all_pts = []
     for child in layer_above_meat:
-        print(child.attrib)
         curves_raw = child.attrib['d']
-
         all_pts.extend(parse_multiple_curves(curves_raw))
     
     return all_pts
@@ -135,17 +136,18 @@ def plot_pts(pts):
     x_coords = [pt[0] for pt in pts_decoded]
     y_coords = [pt[1] for pt in pts_decoded]
     plt.figure()
-    plt.plot(x_coords, y_coords, 'b-')  # 'b-' means blue line
-    plt.scatter(x_coords, y_coords, c='red', s=50)  # Add points as red dots
+    # plt.plot(x_coords, y_coords, 'b-')  # 'b-' means blue line
+    plt.scatter(x_coords, y_coords, c='red', s=5)  # Add points as red dots
     plt.grid(True)
-    plt.axis('equal')  # Make the scale equal on both axes
+    plt.axis('equal')
     plt.title('SVG Path Visualization')
     plt.show()
 
 if __name__ == "__main__":
     # svg_file = "..\svg_examples\cabin.svg"
-    # svg_file = "..\svg_examples\Archimedean_spiral.svg"
-    svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
-
+    svg_file = "..\svg_examples\Archimedean_spiral.svg"
+    # svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
+    # svg_file = "..\svg_examples\chef-man-cap-svgrepo-com.svg"
+    
     pts = get_pts_from_file(svg_file)
     plot_pts(pts)
