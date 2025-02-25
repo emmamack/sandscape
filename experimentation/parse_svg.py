@@ -5,15 +5,25 @@ import matplotlib.pyplot as plt
 import re
 import bezier
 import numpy as np
+import math
+
+SEG_LENGTH = 15
 
 @dataclass
 class Curve:
     marker: str
     body: List[int]
 
-    # def __post_init__(self):
-    #     if not len(self.body) == curve_types_to_expected_length[self.marker]:
-    #         raise ValueError(f"Unexpected curve length for type {self.marker}: {len(self.body)}!")
+    def __post_init__(self):
+        expected_length = curve_types_to_expected_length[self.marker][0]
+        multiples_expected = curve_types_to_expected_length[self.marker][1]
+
+        if multiples_expected:
+            if not (len(self.body)%expected_length) == 0:
+                raise ValueError(f"Unexpected curve length for type {self.marker}: {len(self.body)}!")
+        else: 
+            if not len(self.body) == expected_length:
+                raise ValueError(f"Unexpected curve length for type {self.marker}: {len(self.body)}!")
 
 @dataclass
 class Point:
@@ -24,25 +34,35 @@ class Point:
         return (self.x, self.y)
 
 #TODO: maybe encoded curve types and metadata in a better object than this - include description of what the curve actually is/does
+# tuple: (expected_length, multiples_expected)
 curve_types_to_expected_length = {
-    'm':2,
-    'h':1,
-    'v':1,
-    'c':6
+    'm': (2, False),
+    'M': (2, False),
+    'l': (2, True),
+    'L': (2, False),
+    'h': (1, False),
+    'v': (1, False),
+    'c': (6, True)
 }
 
 def split_raw_curves(raw):
     split_at_letter = re.findall(r'[a-zA-Z][^a-zA-Z]*', raw)
     curves = []
 
-    # TODO: check and discard 'z'? ('end curve')
     for curve_block in split_at_letter:
         marker = curve_block[0]
+
+        if marker == 'z': #discard end markers
+            continue
+
         body = [float(x) for x in re.findall(r'-?\d+\.?\d*', curve_block[1:])]
-        curves.append(Curve(
-            marker=marker,
-            body=body
-        ))
+        curve_length = curve_types_to_expected_length[marker][0]
+        single_curves = [body[i:i + curve_length] for i in range(0, len(body), curve_length)]
+        for single_curve in single_curves:
+            curves.append(Curve(
+                marker=marker,
+                body=single_curve
+            ))
     return curves
 
 def discretize_bezier(raw, prev_pt):
@@ -58,8 +78,8 @@ def discretize_bezier(raw, prev_pt):
         # print(nodes)
         bezier_curve_obj = bezier.Curve(nodes, degree=3)
 
-        # TODO: normalize by line length
-        s_vals = np.linspace(0.0, 1.0, 10)
+        num_pts_in_curve = bezier_curve_obj.length / SEG_LENGTH
+        s_vals = np.linspace(0.0, 1.0, math.ceil(num_pts_in_curve))
         evaluator_output = bezier_curve_obj.evaluate_multi(s_vals)
         for x, y in zip(evaluator_output[0], evaluator_output[1]):
             pts.append(Point(x=float(x), y=float(y)))
@@ -144,8 +164,8 @@ def plot_pts(pts):
     plt.show()
 
 if __name__ == "__main__":
-    # svg_file = "..\svg_examples\cabin.svg"
-    svg_file = "..\svg_examples\Archimedean_spiral.svg"
+    svg_file = "..\svg_examples\cabin.svg"
+    # svg_file = "..\svg_examples\Archimedean_spiral.svg"
     # svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
     # svg_file = "..\svg_examples\chef-man-cap-svgrepo-com.svg"
     
