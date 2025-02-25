@@ -65,26 +65,19 @@ def split_raw_curves(raw):
             ))
     return curves
 
-def discretize_bezier(raw, prev_pt):
-    node_sets = [raw[i:i + 6] for i in range(0, len(raw), 6)]
+def discretize_bezier(node_set, prev_pt):
+    nodes = np.asfortranarray([
+        [prev_pt.x, prev_pt.x+node_set[0], prev_pt.x+node_set[2], prev_pt.x+node_set[4]],
+        [prev_pt.y, prev_pt.y+node_set[1], prev_pt.y+node_set[3], prev_pt.y+node_set[5]],
+    ])
+    # print(nodes)
+    bezier_curve_obj = bezier.Curve(nodes, degree=3)
 
-    pts = []
-
-    for node_set in node_sets:
-        nodes = np.asfortranarray([
-            [prev_pt.x, prev_pt.x+node_set[0], prev_pt.x+node_set[2], prev_pt.x+node_set[4]],
-            [prev_pt.y, prev_pt.y+node_set[1], prev_pt.y+node_set[3], prev_pt.y+node_set[5]],
-        ])
-        # print(nodes)
-        bezier_curve_obj = bezier.Curve(nodes, degree=3)
-
-        num_pts_in_curve = bezier_curve_obj.length / SEG_LENGTH
-        s_vals = np.linspace(0.0, 1.0, math.ceil(num_pts_in_curve))
-        evaluator_output = bezier_curve_obj.evaluate_multi(s_vals)
-        for x, y in zip(evaluator_output[0], evaluator_output[1]):
-            pts.append(Point(x=float(x), y=float(y)))
-        
-        prev_pt = Point(x=prev_pt.x+node_set[4], y=prev_pt.y+node_set[5])
+    num_pts_in_curve = bezier_curve_obj.length / SEG_LENGTH
+    s_vals = np.linspace(0.0, 1.0, math.ceil(num_pts_in_curve))
+    evaluator_output = bezier_curve_obj.evaluate_multi(s_vals)
+    
+    pts = [Point(x=float(x), y=float(y)) for x, y in zip(evaluator_output[0], evaluator_output[1])]
     
     return pts
 
