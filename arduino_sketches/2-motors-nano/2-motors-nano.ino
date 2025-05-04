@@ -56,11 +56,13 @@ void checkSafeties() {
   }
 }
 
-void goToPoint(int r, int theta) {
+void goToPoint(int r, int theta, int cmdSpeedRot) {
   // TODO: potential smoothness improvements -
-  // sync timing so r and theta end at the same time
+  // PWM drivers
   // use flexystepper for smooth acceleration
   // normalize speed between middle and outside
+
+  motSpeedRot = 200*cmdSpeedRot; // TODO: this changes with PWM drivers
 
   int deltaR = r - curR;
   
@@ -124,19 +126,12 @@ void goToPoint(int r, int theta) {
   curR = r;
   curTheta = theta;
 
-  Serial.print("Went to "); Serial.print(r); Serial.print(", "); Serial.println(theta);
+  Serial.print("Went to "); Serial.print(r); Serial.print(", "); Serial.print(theta); Serial.print(" with speed "); Serial.println(cmdSpeedRot);
 }
 
 void goToHome() {
-//  while (1) {
-//    if (Serial.available() > 0) {
-//      receivedChar = Serial.read();
-//      Serial.println(receivedChar);
-//      if (receivedChar == 121) {
-//        break;
-//      }
-//    }
-//  }
+  digitalWrite(dirPinLin, IN);
+  
   while (analogRead(limitIn) < 512) {
     digitalWrite(stepPinLin, HIGH);
     delayMicroseconds(motSpeedLin);
@@ -160,8 +155,12 @@ void goToHome() {
     delayMicroseconds(motSpeedRot*2);
   }
 
+  curR = 0;
+  curTheta = 0;
+
   Serial.println("Homing complete.");
 }
+
 
 void setup() {
   pinMode(stepPinRot, OUTPUT);
@@ -176,21 +175,19 @@ void setup() {
   digitalWrite(dirPinLin, IN);
 
   Serial.begin(9600);
-
-//  goToHome();
 }
 
 void loop() {
-  char buff[8];
-  if (Serial.readBytes(buff, 8) == 8) {
-    int cmdR = (buff[0]-48)*1000 + (buff[1]-48)*100 + (buff[2]-48)*10 + (buff[3]-48);
-    int cmdTheta = (buff[4]-48)*1000 + (buff[5]-48)*100 + (buff[6]-48)*10 + (buff[7]-48);
+  char buff[11];
+  if (Serial.readBytes(buff, 11) == 11) {
+    int cmdR = (buff[0]-48)*10000 + (buff[1]-48)*1000 + (buff[2]-48)*100 + (buff[3]-48)*10 + (buff[4]-48);
+    int cmdTheta = (buff[5]-48)*1000 + (buff[6]-48)*100 + (buff[7]-48)*10 + (buff[8]-48);
+    int cmdSpeedRot = (buff[9]-48)*10 + (buff[10]-48);
 
     if (cmdR == 0 && cmdTheta == 0) {
       goToHome();
     } else {
-      goToPoint(cmdR, cmdTheta);
+      goToPoint(cmdR, cmdTheta, cmdSpeedRot);
     }
   }
-  // TOD): listen to outward limit switch even in homing, for safety
 }
