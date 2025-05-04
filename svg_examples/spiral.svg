@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg8"
+   inkscape:version="1.0.2-2 (e86c870879, 2021-01-15)"
+   sodipodi:docname="spiral.svg">
+<path
+       sodipodi:type="spiral"
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.264583"
+       id="path833"
+       sodipodi:cx="109.61309"
+       sodipodi:cy="141.3631"
+       sodipodi:expansion="1"
+       sodipodi:revolution="3"
+       sodipodi:radius="46.581635"
+       sodipodi:argument="-18.121567"
+       sodipodi:t0="0"
+       d="m 109.61309,141.3631 c 1.74351,1.55399 -1.23456,3.11689 -2.58283,2.89782 -3.65373,-0.59368 -4.49927,-5.18135 -3.21281,-8.06349 2.30118,-5.15547 8.99035,-6.12838 13.54414,-3.52779 6.68289,3.81647 7.80219,12.84971 3.84278,19.0248 -5.27727,8.23041 -16.7268,9.49481 -24.505453,4.15776 -9.788646,-6.71615 -11.197144,-20.61228 -4.472745,-29.98611 8.144148,-11.35296 24.502478,-12.90508 35.466758,-4.78773 12.92103,9.56601 14.61653,28.39563 5.10272,40.94742 -10.98408,14.49153 -32.29074,16.33032 -46.428071,5.4177 -16.063735,-12.39962 -18.045766,-36.18723 -5.732685,-51.90873 13.813415,-17.63714 40.084726,-19.762396 57.389376,-6.04767 19.21144,15.22595 21.47992,43.98298 6.36266,62.87003" />
+</svg>

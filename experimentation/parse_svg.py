@@ -7,7 +7,7 @@ import bezier
 import numpy as np
 import math
 
-SEG_LENGTH = 15
+SEG_LENGTH = 5
 
 @dataclass
 class Curve:
@@ -29,6 +29,10 @@ class Curve:
 class Point:
     x: int
     y: int
+    
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
 
     def to_tuple(self):
         return (self.x, self.y)
@@ -105,7 +109,7 @@ def parse_multiple_curves(curves_raw):
         else:
             print(f"Encountered unexpected curve marker: {curve.marker}")
     
-    return pts
+    return pts[1:] # remove artificial (0,0) point
         
 
 def get_layer_above_meat(layer):
@@ -146,11 +150,16 @@ def get_pts_from_file(file):
 
 def plot_pts(pts): 
     pts_decoded = [pt.to_tuple() for pt in pts]
+    print(pts_decoded)
     x_coords = [pt[0] for pt in pts_decoded]
     y_coords = [pt[1] for pt in pts_decoded]
     plt.figure()
-    # plt.plot(x_coords, y_coords, 'b-')  # 'b-' means blue line
-    plt.scatter(x_coords, y_coords, c='red', s=5)  # Add points as red dots
+    plt.plot(x_coords, y_coords, 'k-')  # 'b-' means blue line
+    # plt.scatter(x_coords, y_coords, c='red', s=5)  # Add points as red dots
+    # plt.plot(x_coords, y_coords, ".-", c='red', markersize=10)
+    plt.scatter(x_coords, y_coords, c=np.linspace(0,1,len(x_coords)), s=20)
+    plt.set_cmap("gist_rainbow") 
+    plt.gca().yaxis.set_inverted(True)
     plt.grid(True)
     plt.axis('equal')
     plt.title('SVG Path Visualization')
@@ -159,6 +168,7 @@ def plot_pts(pts):
 if __name__ == "__main__":
     svg_file = "..\svg_examples\cabin.svg"
     # svg_file = "..\svg_examples\Archimedean_spiral.svg"
+    # svg_file = "..\svg_examples\spiral.svg"
     # svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
     # svg_file = "..\svg_examples\chef-man-cap-svgrepo-com.svg"
     
