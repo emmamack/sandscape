@@ -1,10 +1,6 @@
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_MCP23X17.h>
 
-//#ifdef __AVR__
-// #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
-//#endif
-
 #define LED_COUNT 284
 #define LED_PIN 6
 
@@ -135,6 +131,20 @@ void  touchResponseBlock(int wait) {
   delay(wait);
 }
 
+void touchResponseRainbow() {
+  for(long firstPixelHue = 0; firstPixelHue < 5*65536; firstPixelHue += 256) {
+    for (uint16_t i=0; i<LED_COUNT; i++) {
+      uint16_t hue = firstPixelHue + (i * 65536) / LED_COUNT;
+      uint32_t color = strip.ColorHSV(hue, 255, 255);
+      color = strip.gamma32(color);
+      strip.setPixelColor(i, color);
+    }
+    strip.show();
+    delay(10);
+  }
+}
+
 void loop() {
-  touchResponseBlock(10);
+//  touchResponseBlock(10);
+  touchResponseRainbow();
 }
