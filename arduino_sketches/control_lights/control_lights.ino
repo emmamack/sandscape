@@ -6,6 +6,8 @@
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_RGBW + NEO_KHZ400);
 
+long firstPixelHue = 0;
+
 // ~~~~~~~~~~ Sensor stuff ~~~~~~~~~~~~~~~~~~~~~ //
 
 #define SENSOR_PIN_0 15
@@ -109,9 +111,10 @@ void readTouchSensors() {
   Serial.println("]");
 }
 
-void  touchResponseBlock(int wait) {
-  int base_color = strip.Color( 0, 0, 255, 0); // blue
-  readTouchSensors();
+void touchResponseRainbow(int wait) {
+  firstPixelHue += 256;
+  if (firstPixelHue >= 5*65536) firstPixelHue = 0;
+  
   int touchSensorReading[18] = {!res15, !res0, !res1, !res2, !res3, !res4, !res5, !res6, !res7, !res8, !res9, !res10, !res11, !res12, !res13, !res14, !res15, !res0}; // two too long because of the looparound check
 
   int curr_pixel = 0;
@@ -121,7 +124,13 @@ void  touchResponseBlock(int wait) {
                          (touchSensorReading[s] * 255) +
                          (touchSensorReading[s-1] * afterTrapezoidProfile[i]);
       if (white_amount > 255) white_amount = 255;
-      strip.setPixelColor(curr_pixel+i, strip.Color(0, 0, 255, white_amount));
+
+      uint16_t rainbow_hue = firstPixelHue + ((curr_pixel+i) * 65536) / LED_COUNT;
+      uint32_t rainbow_base_color = strip.ColorHSV(rainbow_hue, 255, 255);
+      rainbow_base_color = strip.gamma32(rainbow_base_color);
+
+      uint32_t rainbow_plus_white = ((uint32_t)white_amount << 24) | rainbow_base_color;
+      strip.setPixelColor(curr_pixel+i, rainbow_plus_white);
     }
 
     curr_pixel += sectionSizes[s];
@@ -131,20 +140,7 @@ void  touchResponseBlock(int wait) {
   delay(wait);
 }
 
-void touchResponseRainbow() {
-  for(long firstPixelHue = 0; firstPixelHue < 5*65536; firstPixelHue += 256) {
-    for (uint16_t i=0; i<LED_COUNT; i++) {
-      uint16_t hue = firstPixelHue + (i * 65536) / LED_COUNT;
-      uint32_t color = strip.ColorHSV(hue, 255, 255);
-      color = strip.gamma32(color);
-      strip.setPixelColor(i, color);
-    }
-    strip.show();
-    delay(10);
-  }
-}
-
 void loop() {
-//  touchResponseBlock(10);
-  touchResponseRainbow();
+  readTouchSensors();
+  touchResponseRainbow(10);
 }
