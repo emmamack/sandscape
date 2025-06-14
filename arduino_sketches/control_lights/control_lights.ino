@@ -46,6 +46,13 @@ int res13 = 13;
 int res14 = 14;
 int res15 = 15;
 
+int sectionSizes[18] = {17, 18, 18, 18, 17, 18, 18, 18, 17, 18, 18, 18, 17, 18, 18, 18, 17, 18}; // two too long because of the looparound check
+//int beforeTrapezoidProfile[18] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 56, 84, 112, 140, 168, 196, 224, 252};
+int beforeTrapezoidProfile[18] = {14, 28, 42, 56, 70, 84, 98, 112, 126, 140, 154, 168, 182, 196, 210, 224, 238, 252};
+
+//int afterTrapezoidProfile[18] = {252, 224, 196, 168, 140, 112, 84, 56, 28, 0, 0, 0, 0, 0, 0, 0, 0};
+int afterTrapezoidProfile[18] = {252, 238, 224, 210, 196, 182, 168, 154, 140, 126, 112, 98, 84, 70, 56, 42, 28, 14};
+
 Adafruit_MCP23X17 mcp;
 
 
@@ -54,7 +61,7 @@ void setup() {
   
   strip.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   strip.show();            // Turn OFF all pixels ASAP
-  strip.setBrightness(60); // Set BRIGHTNESS to about 1/5 (max = 255)
+  strip.setBrightness(60); // Set BRIGHTNESS (max = 255)
 
   if (!mcp.begin_I2C()) {
     Serial.println("I2C error.");
@@ -182,24 +189,39 @@ void theaterChaseRainbow(int wait) {
   }
 }
 
-void  touchResponseBlock(uint32_t base_color, int wait) {
+void  touchResponseBlock(int wait) {
+  int base_color = strip.Color( 0, 0, 255, 0); // blue
   readTouchSensors();
-  int touchSensorReading[16] = {res0, res1, res2, res3, res4, res5, res6, res7, res8, res9, res10, res11, res12, res13, res14, res15};
+  int touchSensorReading[18] = {!res15, !res0, !res1, !res2, !res3, !res4, !res5, !res6, !res7, !res8, !res9, !res10, !res11, !res12, !res13, !res14, !res15, !res0}; // two too long because of the looparound check
 
   int curr_pixel = 0;
-  for(int s=0; s<16; s++) {
-    uint32_t color;
-    if(touchSensorReading[s]==0) {
-      color = strip.Color(127, 127, 127); // white
-    } else {
-      color = base_color;
-    }
-    
-    for(int i=curr_pixel; i<curr_pixel+18; i++) {
-      strip.setPixelColor(i, color);
+  for(int s=1; s<17; s++) {
+//    if(touchSensorReading[s]==1) {
+//       strip.fill(strip.Color(0, 0, 255, 255), curr_pixel, sectionSizes[s]);
+
+//      int white_amount = 0;
+//      for(int i=curr_pixel; i<curr_pixel+9; i++) {
+//        strip.setPixelColor(i, strip.Color(0, 0, 255, white_amount));
+//        white_amount += 28;
+//      }
+//      for(int i=curr_pixel+9; i<curr_pixel+18; i++) {
+//        strip.setPixelColor(i, strip.Color(0, 0, 255, white_amount));
+//        white_amount -= 28;
+//      }
+//    } else {
+//      strip.fill(base_color, curr_pixel, sectionSizes[s]);
+//    }
+
+    for(int i=0; i<18; i++) {
+      int white_amount = (touchSensorReading[s+1] * beforeTrapezoidProfile[i]) + 
+                         (touchSensorReading[s] * 255) +
+                         (touchSensorReading[s-1] * afterTrapezoidProfile[i]);
+      if (white_amount > 255) white_amount = 255;
+//      Serial.println(white_amount);
+      strip.setPixelColor(curr_pixel+i, strip.Color(0, 0, 255, white_amount));
     }
 
-    curr_pixel += 18;
+    curr_pixel += sectionSizes[s];
   }
   
   strip.show();
@@ -207,7 +229,7 @@ void  touchResponseBlock(uint32_t base_color, int wait) {
 }
 
 void loop() {
-  touchResponseBlock(strip.Color( 0, 0, 255), 10);
+  touchResponseBlock(10);
 
 //  colorWipe(strip.Color(255,   0,   0), 50); // Red
 //  colorWipe(strip.Color(  0, 255,   0), 50); // Green
