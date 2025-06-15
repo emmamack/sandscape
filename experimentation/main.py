@@ -6,7 +6,6 @@ import queue
 import json
 from datetime import datetime
 
-
 from parse_grbl_status import *
 
 class Mode:
@@ -87,10 +86,10 @@ class SpiralMode(Mode):
         r = rt[0]
         theta = rt[1]
 
-        if limits_hit["r_max"] == True and self.r_dir == 1:
+        if limits_hit["soft_r_max"] == True and self.r_dir == 1:
             self.done = True
             return None
-        elif limits_hit["r_min"] == True and self.r_dir == -1:
+        elif limits_hit["soft_r_min"] == True and self.r_dir == -1:
             self.done = True
             return None
         else:
@@ -133,6 +132,55 @@ class ReactiveSpiralRippleMode(Mode):
         # If specific flags are needed (e.g., self.check_touch_sensors = True),
         # they should be set here.
 
+
+class State:
+    def __init__(self):
+        self.limits_hit = {
+            "soft_r_min": True,
+            "soft_r_max": True,
+            "hard_r_min": True,
+            "hard_r_max": True,
+            "theta_zero": True}
+        self.dials = {"speed": 0.5,
+                "brightness": 0.5}
+        self.touch_sensors = [False, False, False, False, False, False, False, False,
+                        False, False, False, False, False, False, False, False]
+        self.grbl_status = {'State': None,
+                    'MPos': [None,None],
+                    'WPos': [None,None], # not used
+                    'FeedRate': None,
+                    'PlannerBuffer': None,
+                    'RxBuffer': None,
+                    'Pn': None, # limit switches
+                    'SpindleSpeed': None, # not used
+                    'FeedOverride': None, # not used
+                    'RapidOverride': None, # not used
+                    'SpindleOverride': None} # not used
+
+        self.next_move = [] # format [r (X), theta (Z), speed (F)]
+        self.grbl_command_log = [] # only filled if flag_log_commands = True
+        self.moves_sent = 0
+        self.path_history = []
+        self.flags = {
+            "flag_input_change": False,
+            "flag_buffer_space": False,
+            "flag_need_reset": False,
+            "flag_send_move": False,
+            "flag_log_commands": True,
+            "flag_log_path": True,
+            "flag_grbl_homing_on": True,
+            "flag_connect_to_uno": True,
+            "flag_connect_to_nano": False,
+        }
+        
+        self.prev_move = next_move.copy()
+        self.prev_limits_hit = limits_hit.copy()
+        self.prev_dials = dials.copy()
+        self.prev_touch_sensors = touch_sensors.copy()
+        self.prev_grbl_status = grbl_status.copy()
+        
+
+
 def normalize_vector(xy):
     length = math.sqrt(xy[0]**2 + xy[1]**2)
     return [xy[0]/length, xy[1]/length]
@@ -168,11 +216,6 @@ def rt2ticks(rt):
 def xy2ticks(xy):
     return rt2ticks(xy2rt(xy))
 
-def est_serial_con(arduino_com_port, baud_rate):
-    serial_port = serial.Serial(arduino_com_port, baud_rate, timeout=1)
-    time.sleep(2) # Wait for connection to establish!
-    return serial_port
-
 def read_from_port(ser, stop_event, data_queue):
     """
     Reads data from the serial port line by line in a dedicated thread.
@@ -181,6 +224,9 @@ def read_from_port(ser, stop_event, data_queue):
         ser (serial.Serial): The initialized serial port object.
         stop_event (threading.Event): The event to signal the thread to stop.
     """
+    last_msg_timestamp = time.time()
+    time_since_last_msg = time.time() - last_msg_timestamp
+    last_msg_timestamp = time.time()
     print("Reader thread started.")
     while not stop_event.is_set():
         try:
@@ -194,8 +240,10 @@ def read_from_port(ser, stop_event, data_queue):
                 # Decode the bytes into a string, using UTF-8 encoding.
                 # 'errors='ignore'' will prevent crashes on decoding errors.
                 # .strip() removes leading/trailing whitespace, including the newline.
+                time_since_last_msg = time.time() - last_msg_timestamp
+                last_msg_timestamp = time.time()
                 decoded_line = line.decode('utf-8', errors='ignore').strip()
-                print(f"Received: {decoded_line}")
+                print(f"{time.time():.5f} | {time_since_last_msg:.5f}s | Received: {decoded_line}")
                 if len(decoded_line) > 0:
                     data_queue.put(decoded_line)
 
@@ -213,55 +261,12 @@ def read_from_port(ser, stop_event, data_queue):
 
     print("Reader thread finished.")
 
-def check_for_response_q(thread_data_queue, timeout=5):
-    start_time = time.time()
-    end_time = start_time + timeout
-    print(f"listening starting {start_time} ...")
-    while time.time() < end_time:
-        try:
-            line_of_data = thread_data_queue.nowait()
-            if len(line_of_data.rstrip()) > 0:
-                print(line_of_data)
-            all_data = all_data + line_of_data
-            if "ok" in line_of_data.rstrip() or ">" in line_of_data:
-                print("done listening")
-                break
-        except queue.Empty:
-            time.sleep(0.05)
-        
-        print("cfr sleeping")
-        
-    if time.time() > end_time:
-        print("check_for_response timed out - done listening")
-    return all_data
-
-def check_for_response(serial_port, timeout=5, reset=True):
-    if reset:
-        serial_port.reset_input_buffer()
-    all_data = ""
-    start_time = time.time()
-    end_time = start_time + timeout
-    print(f"listening starting {start_time} ...")
-    while time.time() < end_time:
-        line_of_data = serial_port.readline().decode(encoding = "ascii")
-        if len(line_of_data.rstrip()) > 0:
-            print(line_of_data)
-            all_data = all_data + line_of_data
-            if "ok" in line_of_data.rstrip() or ">" in line_of_data:
-                print("done listening")
-                break
-        print("cfr sleeping")
-        time.sleep(0.05)
-    if time.time() > end_time:
-        print("check_for_response timed out - done listening")
-    return all_data
-
 def write_line(serial_port, x):
     if type(x) == str:
-        print(f"writing: {bytes(x, 'utf-8')}")
+        print(f"{time.time():.5f} | writing: {bytes(x, 'utf-8')}")
         serial_port.write(bytes(x,  'utf-8'))
     else:
-        print(f"writing: {x}")
+        print(f"{time.time():.5f} | writing: {x}")
         serial_port.write(x)
     
 def send_with_check(serial_port, x, data_queue, q_timeout=5):
@@ -300,9 +305,9 @@ def send_with_check(serial_port, x, data_queue, q_timeout=5):
             print(f"NO RESPONSE to {x}.")
 
     
-def send_new_grbl_move(serial_port, r_theta_speed, grbl_status, queue):
+def send_new_grbl_move(serial_port, r_theta_speed, grbl_status, queue, override=False):
     """Send a new command to GRBL after checking it won't drive more into limit switches."""
-    if check_move(r_theta_speed, limits_hit, grbl_status):
+    if check_move(r_theta_speed, limits_hit, grbl_status) or override:
         return send_with_check(serial_port, f"G1 X{r_theta_speed[0]:.2f} Z{r_theta_speed[1]:.2f} F{r_theta_speed[2]:.2f}\n", queue)
     else:
         print("Requested move {r_theta_speed} was not sent because it failed checks.")
@@ -312,10 +317,10 @@ def check_move(r_theta_speed, limits_hit, grbl_status):
     """Check move validity based on limits and grbl status."""
     r = r_theta_speed[0]
     # If r limit has been hit, next move needs to be in oppsite direction
-    if limits_hit["r_min"] and r < grbl_status["MPos"][0]:
+    if limits_hit["soft_r_min"] and r < grbl_status["MPos"][0]:
         print("Requested move is into the r_min limit switch.")
         return False
-    elif limits_hit["r_max"] and r > grbl_status["MPos"][0]:
+    elif limits_hit["soft_r_max"] and r > grbl_status["MPos"][0]:
         print("Requested move is into the r_max limit switch.")
         return False
     elif r >= R_MAX or r < R_MIN:
@@ -324,83 +329,64 @@ def check_move(r_theta_speed, limits_hit, grbl_status):
     else:
         print("Requested move is valid.")
         return True
-    
 
-    
-def send_grbl_hold(serial_port):
-    """Stop immediately, no change to buffer or task."""
-    write_line(serial_port, f"!\n")
-    if grbl_status["State"] != "Hold":
-        print("GRBL hold feed command failed.")
-        return False
-    else:
-        return True
-    
-def send_grbl_resume(serial_port):
-    """Resume after hold, no change to buffer or task."""
-    write_line(serial_port, f"~\n")
-    write_line(serial_port, f"?")
-    time.sleep(0.1)
-    if grbl_status["State"] == "Hold":
-        print("GRBL resume command failed.")
-        return False
-    else:
-        return True
-    
-def send_grbl_soft_reset(serial_port):
-    """Stop immediately, retain position info but clear buffer and current task, then unlock to idle."""
-    print(f"writing: {bytes([0x18])}")
-    serial_port.write(bytes([0x18]))
-    write_line(serial_port, f"$X")
-    write_line(serial_port, f"?")
-    time.sleep(0.1)
-    # grbl_status = get_grbl_status(serial_port)
-    if grbl_status["State"] != "Idle" or grbl_status['PlannerBuffer'] != 15:
-        print("GRBL soft reset failed.")
-        return False
-    else:
-        return True
-                
-    
-def get_grbl_status(serial_port, data_queue):
+def get_grbl_status(serial_port, data_queue, reattempts=5):
     # make sure the queue is empty
-    while not data_queue.empty():
-        missed_msg = data_queue.get()
-        print(f"missed message: {missed_msg}")
-    if data_queue.empty():
-        write_line(serial_port,"?")
-        try:
-            response = data_queue.get(timeout=5)
-            if "<" in response and ">" in response:
-                status_dict = parse_grbl_status(response)
-                if status_dict == None:
-                    print(f"ISSUE WITH STATUS PARSING - Re: ? ->: {response}")
-                    return None
-                path_history.append(status_dict["MPos"])
-                return status_dict
-            else:
-                print(f"UNEXPECTED RESPONSE - Re: ? ->: {response}")
-        except queue.Empty:
-            print(f"No status message received")
-    
+    for _ in range(reattempts):
+        while not data_queue.empty():
+            missed_msg = data_queue.get()
+            print(f"missed message: {missed_msg}")
+        if data_queue.empty():
+            write_line(serial_port,"?")
+            try:
+                response = data_queue.get(timeout=5)
+                if "<" in response and ">" in response:
+                    status_dict = parse_grbl_status(response)
+                    data_queue.task_done()
+                    if status_dict == None:
+                        print(f"ISSUE WITH STATUS PARSING - Re: ? ->: {response}")
+                    else:
+                        path_history.append(status_dict["MPos"])
+                        return status_dict
+                else:
+                    print(f"UNEXPECTED RESPONSE - Re: ? ->: {response}")
+            except queue.Empty:
+                print(f"No status message received")
+        time.sleep(.1)
 
-def restart_uno_hard_reset(nano_serial_port):
-    """Stop immediately, use nano to restart uno (to zero position info and clear buffer), and re-establish serial connection."""
-    
-    # Tell nano to send uno reset signal
-    # TODO
-    
-    # Restablish serial connection with uno and confirm status
-    uno_serial_port = est_serial_con(UNO_SERIAL_PORT_NAME, UNO_BAUD_RATE)
-    send_grbl_soft_reset(uno_serial_port)
-    # grbl_status = get_grbl_status(uno_serial_port)
-    if grbl_status["State"] == "Idle":
-        return uno_serial_port
-    else:
-        return None
-
-def homing_sequence(serial_port, data_queue):
+def homing_sequence(serial_port, data_queue, grbl_status, limits_hit):
     q_timeout=60
+    r = grbl_status["MPos"][0]
+    t = grbl_status["MPos"][1]
+    # if hard limits are hit
+    if limits_hit["hard_r_min"] or limits_hit["hard_r_max"]:
+        # reset and unlock to leave alarm state
+        send_with_check(serial_port, GRBL_SOFT_RESET, data_queue)
+        time.sleep(.5)
+        send_with_check(serial_port, GRBL_UNLOCK, data_queue)
+        time.sleep(.5)
+        # move away from switch
+        if limits_hit["hard_r_min"]:
+            print("Moving off r_min switch before homing...")
+            success = send_new_grbl_move(serial_port,[r+30, t, 100], grbl_status, data_queue, override=True)
+            if not success:
+                return False
+        if limits_hit["hard_r_max"]:
+            print("Moving off r_max switch before homing...")
+            success = send_new_grbl_move(serial_port,[r-30, t, 100], grbl_status, data_queue, override=True)
+            if not success:
+                return False
+        time.sleep(.1)
+        while grbl_status["State"] != "Idle":
+            time.sleep(.5)
+            grbl_status = get_grbl_status(serial_port, data_queue)
+            if grbl_status == None:
+                send_with_check(serial_port, GRBL_SOFT_RESET, data_queue)
+                time.sleep(.5)
+                send_with_check(serial_port, GRBL_UNLOCK, data_queue)
+                time.sleep(.5)
+                grbl_status = get_grbl_status(serial_port, data_queue)
+    
     # make sure the queue is empty
     while not data_queue.empty():
         missed_msg = data_queue.get()
@@ -429,32 +415,6 @@ def homing_sequence(serial_port, data_queue):
                 except queue.Empty:
                     print(f"NO RESPONSE to {GRBL_HOME}.")
 
-
-
-
-
-def get_rot_speed_ratio(r0,r1,t0,t1):
-    #normalized
-    r1_n = r1#/11000
-    r0_n = r0#/11000
-    t1_n = t1#/8000
-    t0_n = t0#/8000
-
-    distance = math.sqrt((r1_n-r0_n)**2 + (math.pi*(r0_n+r1_n)*(t1_n-t0_n))**2)
-    delta_theta = t1-t0
-
-    if distance == 0:
-        rot_ratio = 198000 # TODO: this is arbitrary
-    else:
-        rot_ratio = delta_theta/distance
-    
-    if rot_ratio > 198000:
-        rot_ratio = 198000
-    
-    # TODO: tune all these constants
-
-    return int(100 / abs(int(rot_ratio/2000))) # TODO: get rid of 100 / when have PWM drivers
-
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
@@ -469,6 +429,8 @@ NANO_BAUD_RATE = 9600
 flag_log_commands = True
 flag_log_path = True
 flag_grbl_homing_on = True
+flag_connect_to_uno = True
+flag_connect_to_nano = False
 
 # --- SAND TABLE INFORMATION ---
 TICKS_PER_MM_R = 40 # not used here, set in GRBL $100=40
@@ -485,17 +447,17 @@ GRBL_STATUS = bytes("?",  'utf-8')
 GRBL_HOLD = bytes("!\n",  'utf-8')
 GRBL_RESUME = bytes("~\n",  'utf-8')
 GRBL_SOFT_RESET = bytes([0x18])
-# GRBL_HARD_RESET = bytes([0x85]) ???? maybe? i don't know what this does
-GRBL_UNLOCK = bytes("$X",  'utf-8')
+GRBL_UNLOCK = bytes("$X\n",  'utf-8')
 GRBL_HOME = bytes("$H\n",  'utf-8')
-
-
+# GRBL_HARD_RESET = bytes([0x85]) ???? maybe? i don't know what this does
 
 # --- SETUP ---
 
 limits_hit = {
-    "r_min": False,
-    "r_max": False,
+    "soft_r_min": True,
+    "soft_r_max": True,
+    "hard_r_min": True,
+    "hard_r_max": True,
     "theta_zero": False}
 dials = {"speed": 0.5,
          "brightness": 0.5}
@@ -507,6 +469,7 @@ grbl_status = {'State': None,
                'FeedRate': None,
                'PlannerBuffer': None,
                'RxBuffer': None,
+               'Pn': None, # limit switches
                'SpindleSpeed': None, # not used
                'FeedOverride': None, # not used
                'RapidOverride': None, # not used
@@ -526,12 +489,12 @@ modes = [WaypointMode(), SpiralMode()]
 mode_index = 1
 mode = modes[mode_index]
 
-if mode.connect_to_nano:
+if flag_connect_to_nano:
     print("Establishing serial connection to Arduino Nano...")
 else:
     print("Not connecting to Arduino Nano.")
 
-if mode.connect_to_uno:
+if flag_connect_to_uno:
     print("Establishing serial connection to Arduino Uno...")
     uno_serial_port = serial.Serial(UNO_SERIAL_PORT_NAME, UNO_BAUD_RATE, timeout=1)
     time.sleep(2) # Wait for connection to establish!
@@ -549,22 +512,29 @@ if mode.connect_to_uno:
     print("Checking GRBL status...")
     grbl_status = get_grbl_status(uno_serial_port, data_queue)
     print(grbl_status)
-    
+    if "Pn" in grbl_status:
+        if "X" in grbl_status["Pn"]:
+            limits_hit["hard_r_min"] = True
+        else:
+            limits_hit["hard_r_min"] = False
+        if "Y" in grbl_status["Pn"]: # R_max lim is wired to board Y+
+            limits_hit["hard_r_max"] = True
+        else:
+            limits_hit["hard_r_max"] = False
+    else:
+        limits_hit["hard_r_min"] = False
+        limits_hit["hard_r_max"] = False
+
     if flag_grbl_homing_on:
         print("Sending homing sequence...")
-        run_control_loop = homing_sequence(uno_serial_port, data_queue)
+        run_control_loop = homing_sequence(uno_serial_port, data_queue, grbl_status, limits_hit)
         if not run_control_loop:
             print("Homing sequence failed. Ending program.")
-    
-    if mode.check_grbl_status:
+
         print("Checking GRBL status...")
         grbl_status = get_grbl_status(uno_serial_port, data_queue)
         print(grbl_status)
         next_move = grbl_status["MPos"]
-    
-    
-    
-    
 else:
     print("Not connecting to Arduino Uno.")
 
@@ -586,8 +556,6 @@ while run_control_loop:
 
 # --- SENSE --------------------------------------------------------------------
     
-    # TODO get limit switches, put data in limits_hit = {"r_min": False,"r_max": False, "theta_zero": False}
-    
     if mode.check_dials:
         print("Checking control dials...")
     else:
@@ -606,44 +574,51 @@ while run_control_loop:
             print(f"Unsuccessful GRBL status request. Ending program.")
             break
         
-        # Check software "limit switches"
+        # Check software and hardware "limit switches"
         if grbl_status["MPos"][0] <= R_MIN:
-            limits_hit["r_min"] = True
+            limits_hit["soft_r_min"] = True
         else:
-            limits_hit["r_min"] = False
+            limits_hit["soft_r_min"] = False
         if grbl_status["MPos"][0] >= R_MAX:
-            limits_hit["r_max"] = True
+            limits_hit["soft_r_max"] = True
         else:
-            limits_hit["r_max"] = False
+            limits_hit["soft_r_max"] = False
+            
+        
+        if "Pn" in grbl_status:
+            if "X" in grbl_status["Pn"]:
+                limits_hit["hard_r_min"] = True
+            else:
+                limits_hit["hard_r_min"] = False
+            if "Y" in grbl_status["Pn"]: # R_max lim is wired to board Y+
+                limits_hit["hard_r_max"] = True
+            else:
+                limits_hit["hard_r_max"] = False
+        else:
+            limits_hit["hard_r_min"] = False
+            limits_hit["hard_r_max"] = False
         
         if flag_log_path:
             path_history.append(grbl_status["MPos"])
     else:
         print("Ignoring GRBL status.")
     
-    # if prev_dials == dials and prev_touch_sensors == touch_sensors and prev_grbl_status == grbl_status:
-    #         flag_input_change = False
-    # else:
-    #     flag_input_change = True
-    
 # --- THNK ---------------------------------------------------------------------
-    
+
     # Check if limit hits have just been hit
     if prev_limits_hit != limits_hit:
-        if limits_hit["r_min"] or limits_hit["r_max"]:
+        if limits_hit["soft_r_min"] or limits_hit["soft_r_max"]:
             flag_input_change = True
     
     # Check if input (sensors or dials) has changed
     if prev_dials != dials and prev_touch_sensors != touch_sensors:
-        flag_input_change = False
+        flag_input_change = True
     
     # Check if grbl's buffer has space
     if grbl_status["PlannerBuffer"] >= 1:
         # PlannerBuffer is 0 when full, 15 when empty
         # RxBuffer is 0 when full, 128 when empty
         flag_buffer_space = True
-    else:
-        flag_buffer_space = False
     
     # If the mode is done, cyle to next mode
     if mode.done and grbl_status["State"] == "Idle" and grbl_status["PlannerBuffer"] ==15:
@@ -670,14 +645,25 @@ while run_control_loop:
     
     if flag_input_change and grbl_status["State"] != "Idle":
         print("Running flag_input_change actions...")
-        run_control_loop = send_with_check(uno_serial_port, GRBL_HOLD, data_queue)
-        time.sleep(0.5)
         run_control_loop = send_with_check(uno_serial_port, GRBL_SOFT_RESET, data_queue)
-        time.sleep(0.5)
+        time.sleep(0.05)
         run_control_loop = send_with_check(uno_serial_port, GRBL_UNLOCK, data_queue)
-        time.sleep(0.5)
+        time.sleep(0.05)
+        
+    if limits_hit["hard_r_min"] or limits_hit["hard_r_max"]:
+        if flag_grbl_homing_on:
+            print("Hardware limits hit. Rehoming.")
+            run_control_loop = homing_sequence(uno_serial_port, data_queue, grbl_status, limits_hit)
+            next_move = None # do not move, restart loop from beginning
+        else:
+            run_control_loop = False
+            print("Hardware limits hit. Ending program.")
+            break
+
     
-    if (flag_buffer_space or flag_input_change) and next_move is not None:
+    if ((flag_buffer_space or flag_input_change) 
+        and next_move is not None
+        and run_control_loop):
         if mode.connect_to_uno:
             run_control_loop = send_new_grbl_move(uno_serial_port, next_move, grbl_status, data_queue)
             moves_sent += 1
