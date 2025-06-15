@@ -2,6 +2,7 @@ import serial
 import time
 import queue
 import threading
+import numpy as np
 
 NANO_SERIAL_PORT_NAME = "COM4"
 NANO_BAUD_RATE = 9600
@@ -52,23 +53,37 @@ def read_from_port(serial_port, stop_event, data_queue):
     print("Reader thread finished.")
 
 
-print("Establishing serial connection to Arduino Nano...")
-nano_serial_port = serial.Serial(NANO_SERIAL_PORT_NAME, NANO_BAUD_RATE, timeout=1)
-time.sleep(2) # Wait for connection to establish!
+def start_communication():
+    print("Establishing serial connection to Arduino Nano...")
+    nano_serial_port = serial.Serial(NANO_SERIAL_PORT_NAME, NANO_BAUD_RATE, timeout=1)
+    time.sleep(2) # Wait for connection to establish!
 
-# Set up sensor monitoring thread
-stop_event = threading.Event()
-sensor_data_queue = queue.Queue()
-sensor_reader_thread = threading.Thread(target=read_from_port, args=(nano_serial_port, stop_event, sensor_data_queue))
-sensor_reader_thread.daemon = True
-sensor_reader_thread.start()
-time.sleep(2)
+    # Set up sensor monitoring thread
+    stop_event = threading.Event()
+    sensor_data_queue = queue.Queue()
+    sensor_reader_thread = threading.Thread(target=read_from_port, args=(nano_serial_port, stop_event, sensor_data_queue))
+    sensor_reader_thread.daemon = True
+    sensor_reader_thread.start()
+    time.sleep(2)
+    return sensor_data_queue
 
 def parse_sensor_data(raw):
     touch_sensor_status = [int(char) for char in raw[0:16]]
     prox_status = int(raw[16])
 
     return touch_sensor_status, prox_status
+
+
+def cartesian_to_polar(x, y):
+    r = np.sqrt(x**2 + y**2)
+    t = np.arctan2(y, x)*180/np.pi
+    return float(r), float(t)
+
+def polar_to_cartesian(r, t):
+    t = t*np.pi/180
+    x = r * np.cos(t)
+    y = r * np.sin(t)
+    return float(x), float(y)
 
 def calculate_next_point(touch_sensor_status):
     selected_thetas = [j for i,j in zip(touch_sensor_status, SENSOR_THETA_MASK) if i==1]
@@ -77,18 +92,28 @@ def calculate_next_point(touch_sensor_status):
     selected_point = (280, avg_theta)
     print(selected_point)
 
-    
 
+# curr_point = (0, 0)
+# sensor_data_queue = start_communication()
+# while True:
+#     if not sensor_data_queue.empty():
+#         sensor_data_raw = sensor_data_queue.get()
+#         if len(sensor_data_raw) == 17:
+#             touch_sensor_status, prox_status = parse_sensor_data(sensor_data_raw)
+#             print(touch_sensor_status)
 
-curr_point = (0, 0)
-while True:
-    if not sensor_data_queue.empty():
-        sensor_data_raw = sensor_data_queue.get()
-        if len(sensor_data_raw) == 17:
-            touch_sensor_status, prox_status = parse_sensor_data(sensor_data_raw)
-            print(touch_sensor_status)
+#             if touch_sensor_status != [0]*16:
+#                 calculate_next_point(touch_sensor_status)
 
-            if touch_sensor_status != [0]*16:
-                calculate_next_point(touch_sensor_status)
+#  test for going straight towards hand:
+(r0, t0) = (280, 90)
+(r1, t1) = (280, 0)
 
+x0, y0 = polar_to_cartesian(r0, t0)
+x1, y1 = polar_to_cartesian(r1, t1)
 
+print(f"{x0} {y0} {x1} {y1}")
+
+# do y = mx + b to determine path of straight line
+# find point [speed] down the line from curr_point
+# convert back to polar
