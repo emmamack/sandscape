@@ -98,17 +98,6 @@ void readTouchSensors() {
   res13 = mcp.digitalRead(SENSOR_PIN_13);
   res14 = mcp.digitalRead(SENSOR_PIN_14);
   res15 = mcp.digitalRead(SENSOR_PIN_15);
-  
-//  Serial.print("["); 
-//  Serial.print(res0); Serial.print(","); Serial.print(res1); Serial.print(","); 
-//  Serial.print(res2); Serial.print(","); Serial.print(res3); Serial.print(","); 
-//  Serial.print(res4); Serial.print(","); Serial.print(res5); Serial.print(","); 
-//  Serial.print(res6); Serial.print(","); Serial.print(res7); Serial.print(","); 
-//  Serial.print(res8); Serial.print(","); Serial.print(res9); Serial.print(","); 
-//  Serial.print(res10); Serial.print(","); Serial.print(res11); Serial.print(","); 
-//  Serial.print(res12); Serial.print(","); Serial.print(res13); Serial.print(","); 
-//  Serial.print(res14); Serial.print(","); Serial.print(res15); Serial.print(","); 
-//  Serial.println("]");
 }
 
 void sendTouchData() {
@@ -148,5 +137,5 @@ void touchResponseRainbow(int wait) {
 void loop() {
   readTouchSensors();
   sendTouchData(); 
-  touchResponseRainbow(10);
+  touchResponseRainbow(5);
 }
