@@ -16,6 +16,8 @@ class Move:
     r: Optional[float] = None
     t: Optional[float] = None
     s: Optional[float] = None
+    done: Optional[bool] = False
+
     def is_empty(self):
         if self.r == None and self.t == None and self.s == None:
             return True
@@ -34,18 +36,43 @@ class GrblCmd(Enum):
     HOME = bytes("$H\n",  'utf-8')
     # HARD_RESET = bytes([0x85]) ???? maybe? i don't know what this does
 
-class GrblMsgType(Enum):
+class GrblSendMsgType(Enum):
+    EMPTY = "empty"
     CMD = "cmd"
     MOVE = "move"
+    SETTING = "setting"
+    
+class GrblRespType(Enum):
     NONE = "none"
+    RESP_OTHER = "resp_other"
+    RESP_STATUS = "resp_status"
+    RESP_OK = "resp_ok"
+    RESP_ALARM = "resp_alarm"
+    RESP_ERROR = "resp_error"
+    RESP_STARTUP = "resp_startup"
+    RESP_CHECKLIMITS = "resp_checklimits"
+    RESP_NEEDUNLOCK = "resp_needunlock"
+    RESP_UNLOCKED = "resp_unlocked"
+    
+class GrblStatusOptions(Enum):
+    IDLE = "Idle"
+    RUN = "Run"
+    HOLD = "Hold"
+    ALARM = "Alarm"
 
 @dataclass
-class GrblMsg:
-    msg_type: str = GrblMsgType.NONE
-    msg: str = GrblCmd.EMPTY
-    move: Move = Move()
-    sent: bool = False
-    received: bool = False
+class GrblSendMsg:
+    msg_type: Optional[str] = GrblSendMsgType.NONE
+    msg: Optional[str] = GrblCmd.EMPTY
+    move: Optional[Move] = Move()
+    sent: Optional[bool] = False
+    response: Optional[str] = ""
+    received: Optional[bool] = False
+    
+class GrblRespMsg:
+    msg_type: Optional[str] = GrblRespType.NONE
+    msg: Optional[str] = ""
+    handled: Optional[bool] = False
 
 @dataclass
 class LimitsHit:
@@ -73,15 +100,25 @@ class Grbl:
 
 @dataclass
 class Flags:
+    # flags that reset per loop
     input_change: bool = False
     buffer_space: bool = False
     need_reset: bool = False
-    send_next_move: bool = False
+    need_status: False
+    need_unlock: bool = False
+    need_move_off_switch: bool = False
+    need_homing: bool = False
+    need_calc_next_move: bool = False
+    need_send_next_move: bool = False
+    
+    # user set program settings flags
     log_commands: bool = True
     log_path: bool = True
     grbl_homing_on: bool = True
     connect_to_uno: bool = True
     connect_to_nano: bool = False
+    
+    # status flags
     run_control_loop: bool = False
     in_sense_phase: bool = False
     in_think_phase: bool = False
@@ -108,7 +145,8 @@ class State:
     
     theta_correction: float = 0 # TODO
     
-    next_grbl_msg: GrblMsg = GrblMsg()
+    last_grbl_resp: GrblRespMsg = GrblRespMsg()
+    next_grbl_msg: GrblSendMsg = GrblSendMsg()
 
     def iterate(self):
         self.prev_limits_hit = self.limits_hit
@@ -116,13 +154,17 @@ class State:
         self.prev_grbl = self.grbl
         self.prev_flags = self.flags
         self.prev_move = self.next_move
-        
+        self.flags.input_change = False
+        self.flags.buffer_space = False
+        self.flags.need_reset = False
+        self.flags.send_next_move = False
+
     def update_limits_hit(self):
         self.soft_r_min = self.grbl.mpos_r <= R_MIN
         self.soft_r_max = self.grbl.mpos_r >= R_MAX
         self.hard_r_min = self.grbl.pnX
         self.hard_r_max = self.grbl.pnY
-        
+
     def update_from_grbl_msg(self, grbl_msg):
         """Take uno serial msg and integrate into state."""
         status_dict = parse_grbl_status(grbl_msg)
@@ -490,7 +532,85 @@ def homing_sequence(serial_port, grbl_data_queue, grbl_status, limits_hit):
                 except queue.Empty:
                     print(f"NO RESPONSE to {GRBL_HOME}.")
 
-def grbl_write_line(serial_port, x):
+def grbl_resp_msg_txt_to_obj(msg_txt):
+    msg_obj = GrblRespMsg()
+    msg_obj.msg = msg_txt
+    # determine response type
+    if "<" in msg_txt and ">" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_STATUS
+    elif "ok" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_OK
+    elif "ALARM" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_ALARM
+    elif "error" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_ERROR
+    elif "Grbl 1.1h ['$' for help]" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_STARTUP
+    elif "[MSG:Check Limits]" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_CHECKLIMITS
+    elif "[MSG:'$H'|'$X' to unlock]" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_NEEDUNLOCK
+    elif "[MSG:Caution: Unlocked]" in msg_txt:
+        msg_obj.msg_type = GrblRespType.RESP_UNLOCKED
+    else:
+        msg_obj.msg_type = GrblRespType.RESP_OTHER
+    return msg_obj
+
+def handle_grbl_response():
+    """Sets state.flags in state based on state.last_grbl_resp."""
+    isgood = False
+    state.next_grbl_msg.response = state.last_grbl_resp.msg
+    if state.last_grbl_resp.msg_type == GrblRespType.RESP_STATUS:
+        if state.next_grbl_msg.msg == GrblCmd.STATUS:
+            isgood = True
+            state.flags.need_status = False
+            state.update_from_grbl_msg(state.last_grbl_resp.msg)
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_OK:
+        if (state.next_grbl_msg.msg == GrblCmd.PING 
+            or state.next_grbl_msg.msg == GrblCmd.HOME
+            or state.next_grbl_msg.msg == GrblCmd.HOLD
+            or state.next_grbl_msg.msg == GrblCmd.RESUME
+            or state.next_grbl_msg.msg_type == GrblSendMsgType.MOVE
+            or state.next_grbl_msg.msg_type == GrblSendMsgType.SETTING):
+            isgood = True
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM:
+        state.grbl.status = GrblStatusOptions.ALARM
+        state.flags.need_reset = True
+        state.flags.need_unlock = True
+        state.flags.need_status = True
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_ERROR:
+        state.flags.need_reset = True
+        state.flags.need_unlock = True
+        state.flags.need_status = True
+        state.flags.run_control_loop = False
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_STARTUP:
+        state.flags.need_reset = True
+        state.flags.need_unlock = True
+        state.flags.need_status = True
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_CHECKLIMITS:
+        state.flags.need_unlock = True
+        state.flags.need_status = True
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_NEEDUNLOCK:
+        state.flags.need_unlock = True
+        state.flags.need_status = True
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_UNLOCKED:
+        state.flags.need_status = True
+    elif state.last_grbl_resp.msg_type == GrblRespType.RESP_OTHER:
+        state.flags.need_status = True
+            
+    if isgood:
+        state.next_grbl_msg.received = True
+        state.next_grbl_msg.response = state.last_grbl_resp.msg
+        if state.next_grbl_msg.msg_type == GrblSendMsgType.MOVE:
+            state.next_move.done = True
+
+def gen_msg_from_state():
+    """Uses state.flags and internal logic to determine which messages to send to GRBL. 
+    Sets state.next_grbl_msg"""
+    
+def grbl_write_next_msg(serial_port):
+    """Converts state.next_msg to bytes and writes to serial port."""
+    x = state.next_grbl_msg.msg
     if type(x) == str:
         print(f"{time.time():.5f} | writing to grbl: {bytes(x, 'utf-8')}")
         serial_port.write(bytes(x,  'utf-8'))
@@ -498,28 +618,43 @@ def grbl_write_line(serial_port, x):
         print(f"{time.time():.5f} | writing to grbl: {x}")
         serial_port.write(x)
 
-def handle_grbl_response():
-    """Sets state.flags in state based on GRBL response."""
-
-def gen_msg_from_state():
-    """Uses state flags and internal logic to determine which messages to send to GRBL. 
-    Sets state.next_grbl_msg"""
-
-def grbl_communicator(grbl_msg):
-    """Sends messages to grbl and manages state based on response."""
+def run_grbl_communicator(timeout=2):
+    """Sends messages to grbl and manages state based on response. Should be the only function that main control loop runs to communicate with grbl."""
     global grbl_data_queue, uno_serial_port
-    while not grbl_data_queue.empty():
-        missed_msg = grbl_data_queue.get()
-        grbl_data_queue.task_done()
-        handle_grbl_response(GrblCmd.EMPTY, GrblMsgType.NONE, missed_msg)
+    # assume all previous msgs are handled
+    # if there is a message to send
+    while True:
+        # handle missed messages
+        while not grbl_data_queue.empty():
+            msg_txt = grbl_data_queue.get()
+            grbl_data_queue.task_done()
+            state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
+            handle_grbl_response()
+        # generate state.next_grbl_msg
         gen_msg_from_state()
-        grbl_write_line(uno_serial_port, msg)
-    if grbl_msg.msg_type == GrblMsgType.CMD:
-        grbl_write_line(uno_serial_port, msg)
-        
-    
-    
-    
+        # while there is still a message to send
+
+        # wait extra long if we're running homing
+        if state.next_grbl_msg.msg == GrblCmd.HOME:
+            timeout = 60
+        grbl_write_next_msg(uno_serial_port) # send state.next_grbl_msg
+        start_time = time.time()
+        end_time = start_time + timeout
+        while True:
+            if time.time() > end_time:
+                state.last_grbl_resp = GrblRespMsg()
+                break
+            if grbl_data_queue.empty():
+                time.sleep(0.02)
+            else:
+                msg_txt = grbl_data_queue.get()
+                grbl_data_queue.task_done()
+                state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
+                break
+        handle_grbl_response()
+        gen_msg_from_state() # generates empty msg if no further com needed
+        if state.next_grbl_msg.msg_type != GrblSendMsgType.EMPTY:
+            break
 
 # === MAIN CONTROL SCRIPT ======================================================
 
@@ -579,26 +714,14 @@ def main():
         reader_thread.start()
         time.sleep(2)
         
-        state.flags.run_control_loop = send_with_check(uno_serial_port, GRBL_SOFT_RESET, grbl_data_queue)
+        state.flags.run_control_loop = send_with_check(uno_serial_port, GrblCmd.SOFT_RESET, grbl_data_queue)
         time.sleep(2)
 
         print("Checking GRBL status...")
-        grbl_status = get_grbl_status(uno_serial_port, grbl_data_queue)
-        print(grbl_status)
-        if "Pn" in grbl_status:
-            if "X" in grbl_status["Pn"]:
-                state.limits_hit.hard_r_min = True
-            else:
-                state.limits_hit.hard_r_min = False
-            if "Y" in grbl_status["Pn"]: # R_max lim is wired to board Y+
-                state.limits_hit.hard_r_max = True
-            else:
-                state.limits_hit.hard_r_max = False
-        else:
-            state.limits_hit.hard_r_min = False
-            state.limits_hit.hard_r_max = False
+        state.flags.need_status = True
+        run_grbl_communicator()
 
-        if flag_grbl_homing_on:
+        if state.flags.grbl_homing_on:
             print("Sending homing sequence...")
             state.flags.run_control_loop = homing_sequence(uno_serial_port, grbl_data_queue, grbl_status, limits_hit)
             if not state.flags.run_control_loop:
@@ -614,32 +737,23 @@ def main():
     # --- MAIN CONTROL LOOP --------------------------------------------------------
     state.flags.run_control_loop = True
     while state.flags.run_control_loop:
-        flag_input_change = False
-        flag_buffer_space = False
-        flag_need_reset = False
-        flag_send_move = False
-        
-        grbl_last_move = next_move.copy()
-        prev_limits_hit = limits_hit.copy()
-        prev_dials = dials.copy()
-        prev_touch_sensors = touch_sensors.copy()
-        prev_grbl_status = grbl_status.copy()
+        state.iterate()
         
         print(f"Loop Start --------------- moves sent: {moves_sent}")
 
     # --- SENSE --------------------------------------------------------------------
         
-        if mode.check_dials:
-            print("Checking control dials...")
+        if mode.need_control_panel:
+            print("Checking control panel...")
         else:
-            print("Ignoring control dials.")
+            print("Ignoring control panel.")
         
-        if mode.check_touch_sensors:
+        if mode.need_touch_sensors:
             print("Checking touch sensors...")
         else:
             print("Ignoring touch sensors.")
         
-        if mode.check_grbl_status:
+        if mode.need_grbl:
             print("Checking GRBL status...")
             grbl_status = get_grbl_status(uno_serial_port, grbl_data_queue)
             print(f"Main Loop grbl_status: {grbl_status}")
@@ -679,19 +793,20 @@ def main():
     # --- THNK ---------------------------------------------------------------------
 
         # Check if limit hits have just been hit
-        if prev_limits_hit != limits_hit:
+        if state.prev_limits_hit != state.limits_hit:
             if state.limits_hit.soft_r_min or state.limits_hit.soft_r_max:
-                flag_input_change = True
+                state.flag_input_change = True
         
         # Check if input (sensors or dials) has changed
-        if prev_dials != dials and prev_touch_sensors != touch_sensors:
+        if (state.prev_control_panel != state.control_panel 
+            and state.prev_touch_sensors != state.touch_sensors):
             flag_input_change = True
         
         # Check if grbl's buffer has space
-        if grbl_status["PlannerBuffer"] >= 1:
+        if state.grbl.planner_buffer >= 1:
             # PlannerBuffer is 0 when full, 15 when empty
             # RxBuffer is 0 when full, 128 when empty
-            flag_buffer_space = True
+            state.flag_buffer_space = True
         
         # If the mode is done, cyle to next mode
         if mode.done and grbl_status["State"] == "Idle" and grbl_status["PlannerBuffer"] ==15:
