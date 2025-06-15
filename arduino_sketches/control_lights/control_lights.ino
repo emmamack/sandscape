@@ -60,7 +60,7 @@ void setup() {
 
   if (!mcp.begin_I2C()) {
     Serial.println("I2C error.");
-    while (1);
+//    while (1);
   }
 
   mcp.pinMode(SENSOR_PIN_0, INPUT);
