@@ -1,3 +1,5 @@
+// ~~~~~~~~~~~~~ Lights stuff ~~~~~~~~~~~~~~~~~~~~~~~~ //
+
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_MCP23X17.h>
 
@@ -8,7 +10,7 @@ Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_RGBW + NEO_KHZ400);
 
 long firstPixelHue = 0;
 
-// ~~~~~~~~~~ Sensor stuff ~~~~~~~~~~~~~~~~~~~~~ //
+// ~~~~~~~~~~ Touch sensor stuff ~~~~~~~~~~~~~~~~~~~~~ //
 
 #define SENSOR_PIN_0 15
 #define SENSOR_PIN_1 14
@@ -50,6 +52,11 @@ int afterTrapezoidProfile[18] = {252, 238, 224, 210, 196, 182, 168, 154, 140, 12
 
 Adafruit_MCP23X17 mcp;
 
+// ~~~~~~~~~~ Prox sensor stuff ~~~~~~~~~~~~~~~~~~~~~ //
+
+#define PROX_PIN A0
+
+int proxReading = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -60,7 +67,7 @@ void setup() {
 
   if (!mcp.begin_I2C()) {
     Serial.println("I2C error.");
-//    while (1);
+    while (1);
   }
 
   mcp.pinMode(SENSOR_PIN_0, INPUT);
@@ -100,9 +107,19 @@ void readTouchSensors() {
   res15 = mcp.digitalRead(SENSOR_PIN_15);
 }
 
-void sendTouchData() {
+void sendSensorData() {
   Serial.print(res0);  Serial.print(res1);  Serial.print(res2);  Serial.print(res3);  Serial.print(res4);  Serial.print(res5);  Serial.print(res6);  Serial.print(res7); 
-  Serial.print(res8);  Serial.print(res9);  Serial.print(res10); Serial.print(res11); Serial.print(res12); Serial.print(res13); Serial.print(res14); Serial.println(res15);
+  Serial.print(res8);  Serial.print(res9);  Serial.print(res10); Serial.print(res11); Serial.print(res12); Serial.print(res13); Serial.print(res14); Serial.print(res15);
+  Serial.println(proxReading);
+}
+
+void readProxSensor() {
+  int rawProxReading = analogRead(PROX_PIN);
+  if (rawProxReading > 500) {
+    proxReading = 1;
+  } else {
+    proxReading = 0;
+  }
 }
 
 void touchResponseRainbow(int wait) {
@@ -136,6 +153,7 @@ void touchResponseRainbow(int wait) {
 
 void loop() {
   readTouchSensors();
-  sendTouchData(); 
+  readProxSensor();
+  sendSensorData(); 
   touchResponseRainbow(5);
 }

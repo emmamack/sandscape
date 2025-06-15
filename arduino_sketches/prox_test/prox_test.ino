@@ -1,4 +1,4 @@
-int prox = A3;
+int prox = A0;
 
 void setup() {
   Serial.begin(9600);
