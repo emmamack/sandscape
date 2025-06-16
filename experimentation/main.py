@@ -401,7 +401,7 @@ def rt2ticks(rt):
 def xy2ticks(xy):
     return rt2ticks(xy2rt(xy))
 
-def read_from_port(ser, stop_event, grbl_data_queue):
+def read_from_port(serial_port, stop_event, data_queue):
     """
     Reads data from the serial port line by line in a dedicated thread.
 
@@ -418,7 +418,7 @@ def read_from_port(ser, stop_event, grbl_data_queue):
             # The readline() function will block until a newline character
             # is received, or until the timeout (set during port initialization)
             # is reached.
-            line = ser.readline()
+            line = serial_port.readline()
 
             # If a line was actually read (i.e., not a timeout)
             if line:
@@ -430,7 +430,7 @@ def read_from_port(ser, stop_event, grbl_data_queue):
                 decoded_line = line.decode('utf-8', errors='ignore').strip()
                 print(f"{time.time():.5f} | {time_since_last_msg:.5f}s | Received: {decoded_line}")
                 if len(decoded_line) > 0:
-                    grbl_data_queue.put(decoded_line)
+                    data_queue.put(decoded_line)
 
 
         except serial.SerialException as e:
@@ -814,7 +814,7 @@ UNO_SERIAL_PORT_NAME = 'COM8'
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
-NANO_SERIAL_PORT_NAME = 'COM6' #TODO
+NANO_SERIAL_PORT_NAME = 'COM4' #TODO
 NANO_BAUD_RATE = 9600
 
 # --- SAND TABLE INFORMATION ---
@@ -838,8 +838,8 @@ def main():
     state.flags.log_commands = True
     state.flags.log_path = True
     state.flags.grbl_homing_on = True
-    state.flags.connect_to_uno = True
-    state.flags.connect_to_nano = False
+    state.flags.connect_to_uno = False
+    state.flags.connect_to_nano = True
 
     # --- SETUP ---
     state.flags_to_setup() # allow all types of actions
@@ -849,8 +849,19 @@ def main():
     mode_index = 0
     mode = modes[mode_index]
 
+    stop_event = threading.Event()
+
     if state.flags.connect_to_nano:
         print("Establishing serial connection to Arduino Nano...")
+        nano_serial_port = serial.Serial(NANO_SERIAL_PORT_NAME, NANO_BAUD_RATE, timeout=1)
+        time.sleep(2) # Wait for connection to establish!
+        
+        # Set up sensor monitoring thread
+        sensor_data_queue = queue.Queue()
+        sensor_reader_thread = threading.Thread(target=read_from_port, args=(nano_serial_port, stop_event, sensor_data_queue))
+        sensor_reader_thread.daemon = True
+        sensor_reader_thread.start()
+        time.sleep(2)
     else:
         print("Not connecting to Arduino Nano.")
 
@@ -861,11 +872,10 @@ def main():
         
         # Set up grbl monitoring thread
         grbl_data_queue = queue.Queue()
-        stop_event = threading.Event()
-        reader_thread = threading.Thread(target=read_from_port, args=(uno_serial_port, stop_event, grbl_data_queue))
-        reader_thread.daemon = True
-        reader_thread.start()
-        time.sleep(1)
+        grbl_reader_thread = threading.Thread(target=read_from_port, args=(uno_serial_port, stop_event, grbl_data_queue))
+        grbl_reader_thread.daemon = True
+        grbl_reader_thread.start()
+        time.sleep(2)
         
         print("Resetting and unlocking GRBL...")
         state.flags.need_reset = True
