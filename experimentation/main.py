@@ -385,21 +385,6 @@ def rt2xy(rt):
     y = rt[0]*math.sin(rt[0])
     return [x, y]
 
-def ticks2rt(ticks):
-    r = ticks[0]/TICKS_PER_MM_R
-    theta = ticks[1]/TICKS_PER_DEG_THETA
-    return [r, theta]
-
-def ticks2xy(ticks):
-    return rt2xy(ticks2rt(ticks))
-
-def rt2ticks(rt):
-    r = rt[0]*TICKS_PER_MM_R
-    theta = rt[1]*TICKS_PER_DEG_THETA
-    return [r, theta]
-
-def xy2ticks(xy):
-    return rt2ticks(xy2rt(xy))
 
 def read_from_port(serial_port, stop_event, data_queue):
     """
@@ -445,147 +430,6 @@ def read_from_port(serial_port, stop_event, data_queue):
                 time.sleep(1)
 
     print("Reader thread finished.")
-
-def write_line(serial_port, x):
-    if type(x) == str:
-        print(f"{time.time():.5f} | writing: {bytes(x, 'utf-8')}")
-        serial_port.write(bytes(x,  'utf-8'))
-    else:
-        print(f"{time.time():.5f} | writing: {x}")
-        serial_port.write(x)
-    
-def send_with_check(serial_port, x, grbl_data_queue, q_timeout=5):
-    # make sure the queue is empty
-    while not grbl_data_queue.empty():
-        missed_msg = grbl_data_queue.get()
-        # print(f"missed message: {missed_msg}")
-    if grbl_data_queue.empty():
-        write_line(serial_port, x)
-        try:
-            response = grbl_data_queue.get(timeout=q_timeout)
-            print(f"Re: {x} -> {response}")
-            if "ok" in response:
-                grbl_data_queue.task_done()
-                return True
-            elif "error" in response:
-                grbl_data_queue.task_done()
-                return False
-            elif "<" in response and ">" in response:
-                grbl_data_queue.task_done()
-                return True
-            elif (   "Grbl 1.1h ['$' for help]" in response 
-                  or "[MSG:'$H'|'$X' to unlock]" in response
-                  or "ALARM:3" in response 
-                  or "[MSG:Caution: Unlocked]" in response):
-                grbl_data_queue.task_done()
-                if x == GRBL_SOFT_RESET or x == GRBL_UNLOCK or x == GRBL_HOLD:
-                    return True
-                else:
-                    return False
-            else:
-                print(f"UNEXPECTED REPONSE - Re: {x} -> {response}")
-                grbl_data_queue.task_done()
-                return False
-        except queue.Empty:
-            print(f"NO RESPONSE to {x}.")
-
-    
-def send_new_grbl_move(serial_port, r_theta_speed, grbl_status, queue, override=False):
-    """Send a new command to GRBL after checking it won't drive more into limit switches."""
-    if check_move(r_theta_speed, limits_hit, grbl_status) or override:
-        return send_with_check(serial_port, f"G1 X{r_theta_speed[0]:.2f} Z{r_theta_speed[1]:.2f} F{r_theta_speed[2]:.2f}\n", queue)
-    else:
-        print("Requested move {r_theta_speed} was not sent because it failed checks.")
-        return False
-    
-
-    
-
-def get_grbl_status(serial_port, grbl_data_queue, reattempts=5):
-    # make sure the queue is empty
-    for _ in range(reattempts):
-        while not grbl_data_queue.empty():
-            missed_msg = grbl_data_queue.get()
-            print(f"missed message: {missed_msg}")
-        if grbl_data_queue.empty():
-            write_line(serial_port,"?")
-            try:
-                response = grbl_data_queue.get(timeout=5)
-                if "<" in response and ">" in response:
-                    status_dict = parse_grbl_status(response)
-                    grbl_data_queue.task_done()
-                    if status_dict == None:
-                        print(f"ISSUE WITH STATUS PARSING - Re: ? ->: {response}")
-                    else:
-                        state.path_history.append(status_dict["MPos"])
-                        return status_dict
-                else:
-                    print(f"UNEXPECTED RESPONSE - Re: ? ->: {response}")
-            except queue.Empty:
-                print(f"No status message received")
-        time.sleep(.1)
-
-def homing_sequence(serial_port, grbl_data_queue, grbl_status, limits_hit):
-    q_timeout=60
-    r = grbl_status["MPos"][0]
-    t = grbl_status["MPos"][1]
-    # if hard limits are hit
-    if state.limits_hit.hard_r_min or state.limits_hit.hard_r_max:
-        # reset and unlock to leave alarm state
-        send_with_check(serial_port, GRBL_SOFT_RESET, grbl_data_queue)
-        time.sleep(.5)
-        send_with_check(serial_port, GRBL_UNLOCK, grbl_data_queue)
-        time.sleep(.5)
-        # move away from switch
-        if state.limits_hit.hard_r_min:
-            print("Moving off r_min switch before homing...")
-            success = send_new_grbl_move(serial_port,[r+30, t, 100], grbl_status, grbl_data_queue, override=True)
-            if not success:
-                return False
-        if state.limits_hit.hard_r_max:
-            print("Moving off r_max switch before homing...")
-            success = send_new_grbl_move(serial_port,[r-30, t, 100], grbl_status, grbl_data_queue, override=True)
-            if not success:
-                return False
-        time.sleep(.1)
-        while grbl_status["State"] != "Idle":
-            time.sleep(.5)
-            grbl_status = get_grbl_status(serial_port, grbl_data_queue)
-            if grbl_status == None:
-                send_with_check(serial_port, GRBL_SOFT_RESET, grbl_data_queue)
-                time.sleep(.5)
-                send_with_check(serial_port, GRBL_UNLOCK, grbl_data_queue)
-                time.sleep(.5)
-                grbl_status = get_grbl_status(serial_port, grbl_data_queue)
-    
-    # make sure the queue is empty
-    while not grbl_data_queue.empty():
-        missed_msg = grbl_data_queue.get()
-        # print(f"missed message: {missed_msg}")
-    if grbl_data_queue.empty():
-        write_line(serial_port, GRBL_HOME)
-        start_time = time.time()
-        end_time = start_time + q_timeout
-        print("Homing...", end="", flush=True)
-        while time.time() < end_time:
-            if grbl_data_queue.empty():
-                time.sleep(1)
-                print(".", end="", flush=True)
-            else:
-                print()
-                try:
-                    response = grbl_data_queue.get(timeout=q_timeout)
-                    print(f"Re: {GRBL_HOME} -> {response}")
-                    if "ok" in response:
-                        grbl_data_queue.task_done()
-                        return True
-                    else:
-                        print(f"UNEXPECTED RESPONSE - Re: {GRBL_HOME} -> {response}")
-                        grbl_data_queue.task_done()
-                        return False
-                except queue.Empty:
-                    print(f"NO RESPONSE to {GRBL_HOME}.")
-                    
 
 
 def grbl_resp_msg_txt_to_obj(msg_txt):
@@ -678,8 +522,6 @@ def handle_grbl_response():
             state.flags.need_unlock = False
         if state.next_grbl_msg.msg == GrblCmd.SOFT_RESET:
             state.flags.need_reset = False
-
-            
 
 def format_move(move):
     return f"G1 X{move.r:.2f} Z{move.t:.2f} F{move.s:.2f}\n"
@@ -842,7 +684,7 @@ def main():
     state.flags.connect_to_nano = False
 
     # --- SETUP ---
-    state.flags_to_setup() # allow all types of actions
+    state.flags_to_setup() # allow all types of actionsC
     state.flags.run_control_loop = True
     
     modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
