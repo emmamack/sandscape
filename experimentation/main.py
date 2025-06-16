@@ -838,8 +838,8 @@ def main():
     state.flags.log_commands = True
     state.flags.log_path = True
     state.flags.grbl_homing_on = True
-    state.flags.connect_to_uno = False
-    state.flags.connect_to_nano = True
+    state.flags.connect_to_uno = True
+    state.flags.connect_to_nano = False
 
     # --- SETUP ---
     state.flags_to_setup() # allow all types of actions
