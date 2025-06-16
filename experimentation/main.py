@@ -4,9 +4,10 @@ import math
 import threading
 import queue
 import json
+import signal
 from datetime import datetime
-from dataclasses import dataclass
-from typing import Optional, Union
+from dataclasses import dataclass, field
+from typing import Optional, List, Union
 from enum import Enum
 
 from parse_grbl_status import *
@@ -16,7 +17,7 @@ class Move:
     r: Optional[float] = None
     t: Optional[float] = None
     s: Optional[float] = None
-    done: Optional[bool] = False
+    received: Optional[bool] = False
 
     def is_empty(self):
         if self.r == None and self.t == None and self.s == None:
@@ -62,17 +63,25 @@ class GrblStatusOptions(Enum):
 
 @dataclass
 class GrblSendMsg:
-    msg_type: Optional[str] = GrblSendMsgType.NONE
+    msg_type: Optional[str] = GrblSendMsgType.EMPTY
     msg: Optional[str] = GrblCmd.EMPTY
     move: Optional[Move] = Move()
     sent: Optional[bool] = False
     response: Optional[str] = ""
     received: Optional[bool] = False
+    def __repr__(self):
+        if type(self.msg) == GrblCmd:
+            msg_str = self.msg.name
+        else:
+            msg_str = self.msg
+        return f"GrblSendMsg(msg_type={self.msg_type.name}, msg={msg_str}, move={self.move}, sent={self.sent}, response={self.response}, received={self.received})"
     
 class GrblRespMsg:
     msg_type: Optional[str] = GrblRespType.NONE
     msg: Optional[str] = ""
     handled: Optional[bool] = False
+    def __repr__(self):
+        return f"GrblRespMsg(msg_type={self.msg_type.name}, msg={self.msg}, handled={self.handled})"
 
 @dataclass
 class LimitsHit:
@@ -84,19 +93,19 @@ class LimitsHit:
 
 @dataclass
 class ControlPanel:
-    speed: float
-    brightness: float
+    speed: float = 1
+    brightness: float = 1
 
 @dataclass
 class Grbl:
-    status: str
-    mpos_r: float
-    mpos_t: float
-    feed_rate: float
-    planner_buffer: int
-    rx_buffer: float
-    pnX: bool
-    pnY: bool
+    status: str = ""
+    mpos_r: float = 0
+    mpos_t: float = 0
+    feed_rate: float = 0
+    planner_buffer: int = 15
+    rx_buffer: float = 128
+    pnX: bool = False
+    pnY: bool = False
 
 @dataclass
 class Flags:
@@ -104,9 +113,9 @@ class Flags:
     input_change: bool = False
     buffer_space: bool = False
     need_reset: bool = False
-    need_status: False
+    need_status: bool = False
     need_unlock: bool = False
-    need_move_off_switch: bool = False
+    expecting_extra_msg = False
     need_homing: bool = False
     need_calc_next_move: bool = False
     need_send_next_move: bool = False
@@ -128,6 +137,7 @@ class Flags:
 class State:
     limits_hit: LimitsHit = LimitsHit()
     control_panel: ControlPanel = ControlPanel()
+    touch_sensors: list = field(default_factory=list)
     grbl: Grbl = Grbl()
     flags: Flags = Flags()
     next_move: Move = Move()
@@ -140,13 +150,37 @@ class State:
 
     desired_linspeed: int = 3000 #mm/min
     moves_sent: int = 0
-    path_history: list = []
-    grbl_command_log: list = []
-    
-    theta_correction: float = 0 # TODO
-    
+
     last_grbl_resp: GrblRespMsg = GrblRespMsg()
     next_grbl_msg: GrblSendMsg = GrblSendMsg()
+
+    theta_correction: float = 0 # TODO
+    path_history: list = field(default_factory=list)
+    grbl_command_log: list = field(default_factory=list)
+    
+
+        
+    def __repr__(self):
+        return (
+            f"State(\n"
+            f"  limits_hit={self.limits_hit},\n"
+            f"  control_panel={self.control_panel},\n"
+            f"  touch_sensors={self.touch_sensors},\n"
+            f"  grbl={self.grbl},\n"
+            f"  flags={self.flags},\n"
+            f"  next_move={self.next_move},\n"
+            f"  prev_limits_hit={self.prev_limits_hit},\n"
+            f"  prev_control_panel={self.prev_control_panel},\n"
+            f"  prev_grbl={self.prev_grbl},\n"
+            f"  prev_flags={self.prev_flags},\n"
+            f"  prev_move={self.prev_move},\n"
+            f"  desired_linspeed={self.desired_linspeed},\n"
+            f"  moves_sent={self.moves_sent},\n"
+            f"  last_grbl_resp={self.last_grbl_resp},\n"
+            f"  next_grbl_msg={self.next_grbl_msg}\n"
+            f")"
+        )
+
 
     def iterate(self):
         self.prev_limits_hit = self.limits_hit
@@ -157,30 +191,54 @@ class State:
         self.flags.input_change = False
         self.flags.buffer_space = False
         self.flags.need_reset = False
-        self.flags.send_next_move = False
+        self.flags.need_send_next_move = False
 
     def update_limits_hit(self):
-        self.soft_r_min = self.grbl.mpos_r <= R_MIN
-        self.soft_r_max = self.grbl.mpos_r >= R_MAX
-        self.hard_r_min = self.grbl.pnX
-        self.hard_r_max = self.grbl.pnY
+        print("Updating limits hit...")
+        self.limits_hit.soft_r_min = self.grbl.mpos_r <= R_MIN
+        self.limits_hit.soft_r_max = self.grbl.mpos_r >= R_MAX
+        self.limits_hit.hard_r_min = self.grbl.pnX
+        self.limits_hit.hard_r_max = self.grbl.pnY
+        print(f"Updated limits hit: {self.limits_hit}")
+    
+    def flags_to_setup(self):
+        self.flags.in_sense_phase = True
+        self.flags.in_think_phase = True
+        self.flags.in_act_phase = True
+        
+    def flags_to_sense_phase(self):
+        self.flags.in_sense_phase = True
+        self.flags.in_think_phase = False
+        self.flags.in_act_phase = False
+        
+    def flags_to_think_phase(self):
+        self.flags.in_sense_phase = False
+        self.flags.in_think_phase = True
+        self.flags.in_act_phase = False
+        
+    def flags_to_act_phase(self):
+        self.flags.in_sense = False
+        self.flags.in_think_phase = False
+        self.flags.in_act_phase = True
 
     def update_from_grbl_msg(self, grbl_msg):
         """Take uno serial msg and integrate into state."""
+        print("Updating status from grbl msg...")
         status_dict = parse_grbl_status(grbl_msg)
-        self.status = status_dict["State"]
-        self.mpos_r = status_dict["MPos"][0]
-        self.mpos_t = status_dict["MPos"][1]
-        self.feed_rate = status_dict["FeedRate"]
-        self.planner_buffer = status_dict["PlannerBuffer"]
-        self.rx_buffer = status_dict["RxBuffer"]
+        self.grbl.status = status_dict["State"]
+        self.grbl.mpos_r = status_dict["MPos"][0]
+        self.grbl.mpos_t = status_dict["MPos"][1]
+        self.grbl.feed_rate = status_dict["FeedRate"]
+        self.grbl.planner_buffer = status_dict["PlannerBuffer"]
+        self.grbl.rx_buffer = status_dict["RxBuffer"]
         if "Pn" in status_dict:
-            self.pnX = "X" in status_dict["Pn"]
-            self.pnY = "Y" in status_dict["Pn"]
+            self.grbl.pnX = "X" in status_dict["Pn"]
+            self.grbl.pnY = "Y" in status_dict["Pn"]
         else:
-            self.pnX = False
-            self.pnY = False
+            self.grbl.pnX = False
+            self.grbl.pnY = False
         self.update_limits_hit()
+        print(f"Updated status: {self}")
         
     def update_from_nano_msg(self, nano_msg):
         """TODO: Take nano serial msg and integrate into state."""
@@ -194,13 +252,14 @@ class Mode:
     """
     mode_name: str = "base"  # Should be overridden by subclasses
     segment_length: int = 5
-    base_linspeed: int = 3000 #mm/min
+    base_linspeed: int = 8000 #mm/min
     r_dir: int = 1
     theta_dir: int = 1
     pitch: int = 14 
-    waypoints_xy: list = []
-    waypoints_rt: list = []
+    waypoints_xy: list = field(default_factory=list)
+    waypoints_rt: list = field(default_factory=list)
     waypoints_i: int = 0
+    done: bool = False
 
     need_touch_sensors: bool = False
     need_control_panel: bool = False
@@ -250,7 +309,7 @@ class WaypointMode(Mode):
             new_xy = [xy[0] + vector[0], xy[1] + vector[1]]
             new_rt = xy2rt(new_xy)
             return new_rt
-
+@dataclass
 class SpiralMode(Mode):
     """Mode for the marble to draw a spiral outwards from its current location."""
     mode_name: str = "spiral"
@@ -260,31 +319,40 @@ class SpiralMode(Mode):
     def next_move(self, move_from):
         r = move_from.r
         theta = move_from.t
-
-        if state.limits_hit.soft_r_max == True and self.r_dir == 1:
-            self.done = True
-            return None
-        elif state.limits_hit.soft_r_min == True and self.r_dir == -1:
-            self.done = True
-            return None
+        if self.is_done():
+            return Move()
         else:
-            self.done = False
             if r>30:
                 seg_angle = 360 * self.segment_length/r*2*math.pi
             else:
                 seg_angle = 360
-            
-            new_theta = theta + seg_angle
-            new_r = r + self.pitch*seg_angle/360
-            
+
+            new_theta = theta + seg_angle*self.theta_dir
+            new_r = r + self.pitch*seg_angle/360*self.r_dir
+
             # grbl_assumed_dist = math.sqrt((r-new_r)**2 + (theta-new_theta)**2)
             # compensation_ratio = grbl_assumed_dist/self.segment_length
             # new_speed = self.linspeed*compensation_ratio
-            
+
             pi=math.pi
             r_ave = (r+new_r)/2
-            new_speed = -2*pi*r_ave + self.linspeed + 360
-            return [new_r, new_theta, new_speed]
+            new_speed = (-2*pi*r_ave + self.base_linspeed + 360) * state.control_panel.speed
+            new_move = Move(r=new_r, t=new_theta, s=new_speed)
+            if check_move(new_move):
+                self.done = False
+                return new_move
+            else:
+                self.done = True
+                return Move()
+
+    def is_done(self):
+        if state.limits_hit.soft_r_max == True and self.r_dir == 1:
+            self.done = True
+        elif state.limits_hit.soft_r_min == True and self.r_dir == -1:
+            self.done = True
+        return self.done
+
+
         
 class ReactiveOnlyMode(Mode):
     """Mode where the marble only moves due to touch sensor activation."""
@@ -430,22 +498,8 @@ def send_new_grbl_move(serial_port, r_theta_speed, grbl_status, queue, override=
         print("Requested move {r_theta_speed} was not sent because it failed checks.")
         return False
     
-def check_move(r_theta_speed, limits_hit, grbl_status):
-    """Check move validity based on limits and grbl status."""
-    r = r_theta_speed[0]
-    # If r limit has been hit, next move needs to be in oppsite direction
-    if state.limits_hit.soft_r_min and r < grbl_status["MPos"][0]:
-        print("Requested move is into the r_min limit switch.")
-        return False
-    elif state.limits_hit.soft_r_max and r > grbl_status["MPos"][0]:
-        print("Requested move is into the r_max limit switch.")
-        return False
-    elif r >= R_MAX or r < R_MIN:
-        print("Requested move is out of bounds.")
-        return False
-    else:
-        print("Requested move is valid.")
-        return True
+
+    
 
 def get_grbl_status(serial_port, grbl_data_queue, reattempts=5):
     # make sure the queue is empty
@@ -463,7 +517,7 @@ def get_grbl_status(serial_port, grbl_data_queue, reattempts=5):
                     if status_dict == None:
                         print(f"ISSUE WITH STATUS PARSING - Re: ? ->: {response}")
                     else:
-                        path_history.append(status_dict["MPos"])
+                        state.path_history.append(status_dict["MPos"])
                         return status_dict
                 else:
                     print(f"UNEXPECTED RESPONSE - Re: ? ->: {response}")
@@ -531,6 +585,8 @@ def homing_sequence(serial_port, grbl_data_queue, grbl_status, limits_hit):
                         return False
                 except queue.Empty:
                     print(f"NO RESPONSE to {GRBL_HOME}.")
+                    
+
 
 def grbl_resp_msg_txt_to_obj(msg_txt):
     msg_obj = GrblRespMsg()
@@ -558,6 +614,7 @@ def grbl_resp_msg_txt_to_obj(msg_txt):
 
 def handle_grbl_response():
     """Sets state.flags in state based on state.last_grbl_resp."""
+    # state.flags.expecting_extra_msg = False
     isgood = False
     state.next_grbl_msg.response = state.last_grbl_resp.msg
     if state.last_grbl_resp.msg_type == GrblRespType.RESP_STATUS:
@@ -570,9 +627,14 @@ def handle_grbl_response():
             or state.next_grbl_msg.msg == GrblCmd.HOME
             or state.next_grbl_msg.msg == GrblCmd.HOLD
             or state.next_grbl_msg.msg == GrblCmd.RESUME
+            or state.next_grbl_msg.msg == GrblCmd.UNLOCK
             or state.next_grbl_msg.msg_type == GrblSendMsgType.MOVE
-            or state.next_grbl_msg.msg_type == GrblSendMsgType.SETTING):
+            or state.next_grbl_msg.msg_type == GrblSendMsgType.SETTING
+            or state.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY):
             isgood = True
+            if state.next_grbl_msg.msg == GrblCmd.HOME:
+                state.flags.need_homing = False
+        # state.flags.expecting_extra_msg = False
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM:
         state.grbl.status = GrblStatusOptions.ALARM
         state.flags.need_reset = True
@@ -584,46 +646,134 @@ def handle_grbl_response():
         state.flags.need_status = True
         state.flags.run_control_loop = False
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_STARTUP:
-        state.flags.need_reset = True
+        state.flags.need_reset = False
         state.flags.need_unlock = True
         state.flags.need_status = True
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_CHECKLIMITS:
+        state.flags.expecting_extra_msg = True
         state.flags.need_unlock = True
         state.flags.need_status = True
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_NEEDUNLOCK:
         state.flags.need_unlock = True
         state.flags.need_status = True
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_UNLOCKED:
+        state.flags.need_unlock = False
         state.flags.need_status = True
+        state.flags.expecting_extra_msg = True
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_OTHER:
         state.flags.need_status = True
-            
+    else:
+        print(f"Unrecognized GRBL response: {state.last_grbl_resp.msg}")
+        state.flags.need_reset = True
+        state.flags.need_unlock = True
+        state.flags.need_status = True
+        state.flags.run_control_loop = False
     if isgood:
         state.next_grbl_msg.received = True
         state.next_grbl_msg.response = state.last_grbl_resp.msg
         if state.next_grbl_msg.msg_type == GrblSendMsgType.MOVE:
-            state.next_move.done = True
+            state.next_move.received = True
+            state.flags.need_send_next_move = False
+        if state.next_grbl_msg.msg == GrblCmd.UNLOCK:
+            state.flags.need_unlock = False
+        if state.next_grbl_msg.msg == GrblCmd.SOFT_RESET:
+            state.flags.need_reset = False
+
+            
+
+def format_move(move):
+    return f"G1 X{move.r:.2f} Z{move.t:.2f} F{move.s:.2f}\n"
+
+def check_move(move):
+    """Check move validity based on limits and grbl status."""
+    # If r limit has been hit, next move needs to be in oppsite direction
+    print(f"Checking move {move}...")
+    if state.limits_hit.hard_r_min and move.r < state.grbl.mpos_r:
+        print(f"Requested move {move} is into the hard_r_min limit switch.")
+        return False
+    if state.limits_hit.hard_r_max and move.r > state.grbl.mpos_r:
+        print(f"Requested move {move} is into the hard_r_max limit switch.")
+        return False
+    if not state.flags.need_homing:
+        if state.limits_hit.soft_r_min and move.r < state.grbl.mpos_r:
+            print(f"Requested move {move} is into the soft_r_min limit switch.")
+            return False
+        elif state.limits_hit.soft_r_max and move.r > state.grbl.mpos_r:
+            print(f"Requested move {move} is into the soft_r_max limit switch.")
+            return False
+        elif move.r >= R_MAX or move.r < R_MIN:
+            print(f"Requested move {move} is out of bounds.")
+            return False
+    print(f"Checks passed.")
+    return True
+
+
+def next_move_to_msg():
+    """Check move validity based on limits and grbl status, then make next msg next_move."""
+    # If r limit has been hit, next move needs to be in oppsite direction
+    if state.next_move != None and not state.next_move.is_empty():
+        if check_move(state.next_move):
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.MOVE, msg=format_move(state.next_move))
+            print(f"Next msg: {state.next_grbl_msg}")
+    else:
+        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.EMPTY)
+
+def homing_next_msg():
+    if state.limits_hit.hard_r_min:
+        state.next_move = Move(r=state.grbl.mpos_r+30, t=state.grbl.mpos_t)
+    elif state.limits_hit.hard_r_max:
+        state.next_move = Move(r=state.grbl.mpos_r-30, t=state.grbl.mpos_t)
+    else:
+        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.HOME)
+        return
+    next_move_to_msg()
+
 
 def gen_msg_from_state():
     """Uses state.flags and internal logic to determine which messages to send to GRBL. 
     Sets state.next_grbl_msg"""
-    
+    if state.flags.in_sense_phase:
+        if (state.flags.need_reset 
+            and state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM):
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET)
+        elif state.flags.need_status:
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS)
+        else:
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.EMPTY)
+    if state.flags.in_act_phase:
+        if state.flags.need_reset:
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET)
+        elif state.flags.need_unlock:
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.UNLOCK)
+        elif state.flags.need_homing:
+            homing_next_msg()
+        elif state.flags.need_send_next_move:
+            next_move_to_msg()
+        else:
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.EMPTY)
+
 def grbl_write_next_msg(serial_port):
     """Converts state.next_msg to bytes and writes to serial port."""
     x = state.next_grbl_msg.msg
-    if type(x) == str:
+    if type(x) == GrblCmd:
+        print(f"{time.time():.5f} | writing to grbl: {x.value}")
+        serial_port.write(x.value)
+    elif type(x) == str:
         print(f"{time.time():.5f} | writing to grbl: {bytes(x, 'utf-8')}")
         serial_port.write(bytes(x,  'utf-8'))
     else:
         print(f"{time.time():.5f} | writing to grbl: {x}")
         serial_port.write(x)
 
-def run_grbl_communicator(timeout=2):
+def run_grbl_communicator(timeout=.5):
     """Sends messages to grbl and manages state based on response. Should be the only function that main control loop runs to communicate with grbl."""
     global grbl_data_queue, uno_serial_port
     # assume all previous msgs are handled
-    # if there is a message to send
+    print("Running GRBL communicator...")
     while True:
+        print(state)
+        # if state.flags.expecting_extra_msg:
+        #     time.sleep(0.1)
         # handle missed messages
         while not grbl_data_queue.empty():
             msg_txt = grbl_data_queue.get()
@@ -632,28 +782,29 @@ def run_grbl_communicator(timeout=2):
             handle_grbl_response()
         # generate state.next_grbl_msg
         gen_msg_from_state()
-        # while there is still a message to send
-
-        # wait extra long if we're running homing
-        if state.next_grbl_msg.msg == GrblCmd.HOME:
-            timeout = 60
-        grbl_write_next_msg(uno_serial_port) # send state.next_grbl_msg
-        start_time = time.time()
-        end_time = start_time + timeout
-        while True:
-            if time.time() > end_time:
-                state.last_grbl_resp = GrblRespMsg()
-                break
-            if grbl_data_queue.empty():
-                time.sleep(0.02)
-            else:
-                msg_txt = grbl_data_queue.get()
-                grbl_data_queue.task_done()
-                state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
-                break
-        handle_grbl_response()
-        gen_msg_from_state() # generates empty msg if no further com needed
-        if state.next_grbl_msg.msg_type != GrblSendMsgType.EMPTY:
+        # if there is still a message to send
+        if (state.next_grbl_msg.msg_type != GrblSendMsgType.EMPTY):
+            # wait extra long if we're running homing
+            if state.next_grbl_msg.msg == GrblCmd.HOME:
+                timeout = 60
+            grbl_write_next_msg(uno_serial_port) # send state.next_grbl_msg
+            state.next_grbl_msg.sent = True
+            start_time = time.time()
+            end_time = start_time + timeout
+            while True:
+                if time.time() > end_time:
+                    state.last_grbl_resp = GrblRespMsg()
+                    break
+                if grbl_data_queue.empty():
+                    time.sleep(0.02)
+                else:
+                    msg_txt = grbl_data_queue.get()
+                    grbl_data_queue.task_done()
+                    state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
+                    break
+            handle_grbl_response()
+            gen_msg_from_state() # generates empty msg if no further com needed
+        if (state.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY):
             break
 
 # === MAIN CONTROL SCRIPT ======================================================
@@ -682,7 +833,7 @@ def main():
     global uno_serial_port, grbl_data_queue
     # state is already global
 
-
+    signal.signal(signal.SIGINT, sig_handler)
     # --- PROGRAM OPTIONS ---
     state.flags.log_commands = True
     state.flags.log_path = True
@@ -691,9 +842,11 @@ def main():
     state.flags.connect_to_nano = False
 
     # --- SETUP ---
-
-    modes = [WaypointMode(), SpiralMode()]
-    mode_index = 1
+    state.flags_to_setup() # allow all types of actions
+    state.flags.run_control_loop = True
+    
+    modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    mode_index = 0
     mode = modes[mode_index]
 
     if state.flags.connect_to_nano:
@@ -712,177 +865,164 @@ def main():
         reader_thread = threading.Thread(target=read_from_port, args=(uno_serial_port, stop_event, grbl_data_queue))
         reader_thread.daemon = True
         reader_thread.start()
-        time.sleep(2)
+        time.sleep(1)
         
-        state.flags.run_control_loop = send_with_check(uno_serial_port, GrblCmd.SOFT_RESET, grbl_data_queue)
-        time.sleep(2)
+        print("Resetting and unlocking GRBL...")
+        state.flags.need_reset = True
+        state.flags.need_unlock = True
+        run_grbl_communicator()
 
         print("Checking GRBL status...")
         state.flags.need_status = True
         run_grbl_communicator()
 
         if state.flags.grbl_homing_on:
-            print("Sending homing sequence...")
-            state.flags.run_control_loop = homing_sequence(uno_serial_port, grbl_data_queue, grbl_status, limits_hit)
+            print("Starting homing...")
+            state.flags.need_homing = True
+            run_grbl_communicator()
+
             if not state.flags.run_control_loop:
                 print("Homing sequence failed. Ending program.")
 
             print("Checking GRBL status...")
-            grbl_status = get_grbl_status(uno_serial_port, grbl_data_queue)
-            print(grbl_status)
-            next_move = grbl_status["MPos"]
+            state.flags.need_status = True
+            run_grbl_communicator()
     else:
         print("Not connecting to Arduino Uno.")
 
-    # --- MAIN CONTROL LOOP --------------------------------------------------------
-    state.flags.run_control_loop = True
+# --- MAIN CONTROL LOOP --------------------------------------------------------
     while state.flags.run_control_loop:
         state.iterate()
         
-        print(f"Loop Start --------------- moves sent: {moves_sent}")
+        print(f"Loop Start --------------- moves sent: {state.moves_sent}")
+        print(f"Current mode: {mode.mode_name}")
+        print(mode)
 
-    # --- SENSE --------------------------------------------------------------------
-        
-        if mode.need_control_panel:
-            print("Checking control panel...")
-        else:
-            print("Ignoring control panel.")
-        
-        if mode.need_touch_sensors:
-            print("Checking touch sensors...")
-        else:
-            print("Ignoring touch sensors.")
-        
-        if mode.need_grbl:
-            print("Checking GRBL status...")
-            grbl_status = get_grbl_status(uno_serial_port, grbl_data_queue)
-            print(f"Main Loop grbl_status: {grbl_status}")
-            if grbl_status == None:
-                print(f"Unsuccessful GRBL status request. Ending program.")
-                break
+# --- SENSE --------------------------------------------------------------------
+        print("Sensing...")
+        state.flags_to_sense_phase()
+        if state.flags.connect_to_nano:
+            if mode.need_control_panel:
+                print("Checking control panel...")
+            else:
+                print("Ignoring control panel.")
             
-            # Check software and hardware "limit switches"
-            if grbl_status["MPos"][0] <= R_MIN:
-                state.limits_hit.soft_r_min = True
+            if mode.need_touch_sensors:
+                print("Checking touch sensors...")
             else:
-                state.limits_hit.soft_r_min = False
-            if grbl_status["MPos"][0] >= R_MAX:
-                state.limits_hit.soft_r_max = True
-            else:
-                state.limits_hit.soft_r_max = False
+                print("Ignoring touch sensors.")
+        else:
+            print("Not connected to Arduino Nano - ignoring control panel and touch sensors.")
+            if mode.need_control_panel or mode.need_touch_sensors:
+                print(f"Skipping mode: {mode.mode_name}")
+                mode = modes[(mode_index + 1) % len(modes)]
+        
+        if state.flags.connect_to_uno:
+            if mode.need_grbl:
+                print("Checking GRBL status...")
+                state.flags.need_status = True
+                run_grbl_communicator()
                 
-            
-            if "Pn" in grbl_status:
-                if "X" in grbl_status["Pn"]:
-                    state.limits_hit.hard_r_min = True
-                else:
-                    state.limits_hit.hard_r_min = False
-                if "Y" in grbl_status["Pn"]: # R_max lim is wired to board Y+
-                    state.limits_hit.hard_r_max = True
-                else:
-                    state.limits_hit.hard_r_max = False
+                if state.flags.log_path:
+                    state.path_history.append([time.time(), state.grbl.mpos_r, state.grbl.mpos_t])
             else:
-                state.limits_hit.hard_r_min = False
-                state.limits_hit.hard_r_max = False
-            
-            if flag_log_path:
-                path_history.append(grbl_status["MPos"])
+                print("Ignoring GRBL status.")
         else:
-            print("Ignoring GRBL status.")
+            print("Not connected to Arduino Uno - ignoring GRBL status.")
+            if mode.need_grbl:
+                print(f"Skipping mode: {mode.mode_name}")
+                mode = modes[(mode_index + 1) % len(modes)]
         
-    # --- THNK ---------------------------------------------------------------------
-
-        # Check if limit hits have just been hit
+# --- THNK ---------------------------------------------------------------------
+        print("Thinking...")
+        state.flags_to_think_phase()
+        # Check if limits_hit have just been hit
         if state.prev_limits_hit != state.limits_hit:
             if state.limits_hit.soft_r_min or state.limits_hit.soft_r_max:
-                state.flag_input_change = True
+                state.flags.input_change = True
+            if state.limits_hit.hard_r_min or state.limits_hit.hard_r_max:
+                state.flags.input_change = True
+                state.flags.need_homing = True
         
         # Check if input (sensors or dials) has changed
         if (state.prev_control_panel != state.control_panel 
             and state.prev_touch_sensors != state.touch_sensors):
-            flag_input_change = True
+            state.flags.input_change = True
         
         # Check if grbl's buffer has space
         if state.grbl.planner_buffer >= 1:
             # PlannerBuffer is 0 when full, 15 when empty
             # RxBuffer is 0 when full, 128 when empty
-            state.flag_buffer_space = True
+            state.flags.buffer_space = True
         
         # If the mode is done, cyle to next mode
-        if mode.done and grbl_status["State"] == "Idle" and grbl_status["PlannerBuffer"] ==15:
-            print(f"Mode {mode.mode_type} is done.")
+        if (mode.is_done() 
+            and state.grbl.status == GrblStatusOptions.IDLE.value 
+            and state.grbl.planner_buffer == 15):
+            print(f"Mode {mode.mode_name} is done.")
+            print(mode)
             mode_index = (mode_index + 1) % len(modes)
             mode = modes[mode_index]
-            flag_input_change = True
+            mode.done = False
+            state.flags.input_change = True
+            print(f"Next mode: {mode.mode_name}")
+            print(mode)
         
         # If an input has changed, plan to send reset 
         # and calc next move from current position
-        if flag_input_change:
+        if state.flags.input_change:
+            state.flags.need_reset = True
+            state.flags.need_send_next_move = True
             print("Calculating next move from current position...")
-            next_move = mode.next_move(grbl_status["MPos"], limits_hit, dials, touch_sensors, grbl_status)
+            state.next_move = mode.next_move(Move(r=state.grbl.mpos_r, t=state.grbl.mpos_t, s=0))
+            print(f"Next move: {state.next_move}")
         
         # If input has not changed and buffer is low, 
         # calc next move from last sent move. Otherwise, do nothing.
-        elif flag_buffer_space:
+        elif state.flags.buffer_space:
+            state.flags.need_send_next_move = True
             print("Calculating next move from last sent move...")
-            next_move = mode.next_move(grbl_last_move, limits_hit, dials, touch_sensors, grbl_status)
+            state.next_move = mode.next_move(state.prev_move)
+            print(f"Next move: {state.next_move}")
 
-                
-            
-    # --- ACT ----------------------------------------------------------------------
-        
-        if flag_input_change and grbl_status["State"] != "Idle":
-            print("Running flag_input_change actions...")
-            state.flags.run_control_loop = send_with_check(uno_serial_port, GRBL_SOFT_RESET, grbl_data_queue)
-            time.sleep(0.05)
-            state.flags.run_control_loop = send_with_check(uno_serial_port, GRBL_UNLOCK, grbl_data_queue)
-            time.sleep(0.05)
-            
-        if state.limits_hit.hard_r_min or state.limits_hit.hard_r_max:
-            if flag_grbl_homing_on:
-                print("Hardware limits hit. Rehoming.")
-                state.flags.run_control_loop = homing_sequence(uno_serial_port, grbl_data_queue, grbl_status, limits_hit)
-                next_move = None # do not move, restart loop from beginning
-            else:
-                state.flags.run_control_loop = False
-                print("Hardware limits hit. Ending program.")
-                break
-
-        
-        if ((flag_buffer_space or flag_input_change) 
-            and next_move is not None
-            and state.flags.run_control_loop):
-            if mode.connect_to_uno:
-                state.flags.run_control_loop = send_new_grbl_move(uno_serial_port, next_move, grbl_status, grbl_data_queue)
-                moves_sent += 1
-                if flag_log_commands:
-                    grbl_command_log.append(next_move)
-                
+# --- ACT ----------------------------------------------------------------------
+        print("Acting...")
+        state.flags_to_act_phase()
+        if state.flags.run_control_loop:
+            if state.flags.need_send_next_move and state.flags.log_commands:
+                state.grbl_command_log.append([time.time(), state.next_move.r, state.next_move.t, state.next_move.s])
+            run_grbl_communicator()
+        else:
+            print("Not performing grbl tasks because run_control_loop is set to False.")
         time.sleep(0.5)
     # --- END OF MAIN CONTROL LOOP -------------------------------------------------
 
     print("Control loop exited. Performing safe stop...")
-    send_with_check(uno_serial_port, GRBL_HOLD, grbl_data_queue)
-    time.sleep(0.1)
-    get_grbl_status(uno_serial_port, grbl_data_queue)
-    time.sleep(0.1)
-    send_with_check(uno_serial_port, GRBL_SOFT_RESET, grbl_data_queue)
-    time.sleep(0.1)
+    state.flags_to_sense_phase()
+    state.flags.need_reset = True
+    state.flags.need_status = True
+    run_grbl_communicator()
 
-    if flag_log_path or flag_log_commands:
+    if state.flags.log_path or state.flags.log_commands:
         print("Saving data...")
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"table_log_{timestamp}.json"
 
         data_to_save = {
-            "path_history": path_history,
-            "grbl_command_log": grbl_command_log
+            "path_history": state.path_history,
+            "grbl_command_log": state.grbl_command_log
         }
 
         with open(filename, 'w') as f:
             json.dump(data_to_save, f, indent=4)
 
         print(f"Data saved to {filename}")
+
+def sig_handler(sig, frame):
+    print("Program terminated by user. Sending soft reset to GRBL...")
+    uno_serial_port.write(GrblCmd.SOFT_RESET.value)
+    print("Done.")
+    exit(0)
 
 if __name__ == "__main__":
     main()
