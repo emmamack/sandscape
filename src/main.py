@@ -401,9 +401,11 @@ class ReactiveOnlyDirectMode(Mode):
 
         r_next, t_next = cartesian_to_polar(x_next, y_next)
 
+        t_next = t_next % 360
+
         print(r_next, t_next)
         
-        return Move(r=r_next, t=t_next, s=1000)
+        return Move(r=r_next, t=t_next, s=3000)
 
 @dataclass
 class ReactiveSpiralRippleMode(Mode):
@@ -756,8 +758,8 @@ def main():
     
     modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     mode_index = 0
-    # mode = modes[mode_index]
-    mode = ReactiveOnlyDirectMode()
+    mode = modes[mode_index]
+    # mode = ReactiveOnlyDirectMode()
 
     stop_event = threading.Event()
 
