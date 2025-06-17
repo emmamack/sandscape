@@ -3,6 +3,7 @@ import time
 import queue
 import threading
 import numpy as np
+import matplotlib.pyplot as plt
 
 NANO_SERIAL_PORT_NAME = "COM4"
 NANO_BAUD_RATE = 9600
@@ -106,14 +107,46 @@ def calculate_next_point(touch_sensor_status):
 #                 calculate_next_point(touch_sensor_status)
 
 #  test for going straight towards hand:
-(r0, t0) = (280, 90)
-(r1, t1) = (280, 0)
+(r0, t0) = (60, 127)
+(r1, t1) = (280, -30)
+speed = 20
 
-x0, y0 = polar_to_cartesian(r0, t0)
-x1, y1 = polar_to_cartesian(r1, t1)
+def get_next_pt_towards_hand_direct(r0, t0, r1, t1):
+    x0, y0 = polar_to_cartesian(r0, t0)
+    x1, y1 = polar_to_cartesian(r1, t1)
 
-print(f"{x0} {y0} {x1} {y1}")
+    # print(f"{x0} {y0} {x1} {y1}")
 
-# do y = mx + b to determine path of straight line
-# find point [speed] down the line from curr_point
-# convert back to polar
+    (dir_x, dir_y)  = ((x1 - x0), (y1 - y0))
+    len_dir_vector = np.sqrt(dir_x**2 + dir_y**2)
+    (x_to_travel, y_to_travel) = (dir_x*speed/len_dir_vector, dir_y*speed/len_dir_vector)
+    (x_next, y_next) = (x0 + x_to_travel, y0 + y_to_travel)
+
+    print(x_next, y_next)
+
+    r_next, t_next = cartesian_to_polar(x_next, y_next)
+
+    print(r_next, t_next)
+
+    return r_next, t_next
+
+rs = [r0]
+ts = [t0]
+for _ in range(20):
+    r0, t0 = get_next_pt_towards_hand_direct(r0, t0, r1, t1)
+    rs.append(r0)
+    ts.append(t0)
+
+# Convert theta from degrees to radians for plotting
+ts_rad = [t * np.pi/180 for t in ts]
+
+# Create polar plot
+plt.figure(figsize=(8, 8))
+ax = plt.subplot(111, projection='polar')
+ax.plot(ts_rad, rs, 'b.-', label='Path')
+ax.set_rmax(300)  # Set maximum radius to 300
+ax.set_rticks([0, 100, 200, 300])  # Set radius ticks
+ax.set_thetagrids(np.arange(0, 360, 45))  # Set theta grid lines every 45 degrees
+ax.grid(True)
+ax.set_title('Path in Polar Coordinates')
+plt.show()

@@ -12,6 +12,8 @@ from enum import Enum
 
 from parse_grbl_status import *
 
+EXPECTED_SENSOR_BYTESTRING_LENGTH = 17
+
 @dataclass
 class Move:
     r: Optional[float] = None
@@ -110,7 +112,7 @@ class Grbl:
 @dataclass
 class Flags:
     # flags that reset per loop
-    input_change: bool = False
+    input_change: bool = True
     buffer_space: bool = False
     need_reset: bool = False
     need_status: bool = False
@@ -140,13 +142,14 @@ class State:
     touch_sensors: list = field(default_factory=list)
     grbl: Grbl = Grbl()
     flags: Flags = Flags()
-    next_move: Move = Move()
+    next_move: Move = Move(r=0,t=0)
 
     prev_limits_hit: LimitsHit = LimitsHit()
     prev_control_panel: ControlPanel = ControlPanel()
+    prev_touch_sensors: list = field(default_factory=list)
     prev_grbl: Grbl = Grbl()
     prev_flags: Flags = Flags()
-    prev_move: Move = Move()
+    prev_move: Move = Move(r=0,t=0)
 
     desired_linspeed: int = 3000 #mm/min
     moves_sent: int = 0
@@ -185,9 +188,11 @@ class State:
     def iterate(self):
         self.prev_limits_hit = self.limits_hit
         self.prev_control_panel = self.control_panel
+        self.prev_touch_sensors = self.touch_sensors
         self.prev_grbl = self.grbl
         self.prev_flags = self.flags
-        self.prev_move = self.next_move
+        if self.next_move.received:
+            self.prev_move = self.next_move
         self.flags.input_change = False
         self.flags.buffer_space = False
         self.flags.need_reset = False
@@ -289,7 +294,7 @@ class Mode:
         return [
             WaypointMode(),
             SpiralMode(),
-            ReactiveOnlyMode(),
+            ReactiveOnlyDirectMode(),
             ReactiveSpiralRippleMode()
         ]
 
@@ -304,15 +309,17 @@ class WaypointMode(Mode):
             return None
         else:
             self.done = False
-            xy = rt2xy(rt)
+            xy = polar_to_cartesian(rt)
             vector = get_direction(xy, self.waypoints_xy[self.waypoints_i])*self.segment_length
             new_xy = [xy[0] + vector[0], xy[1] + vector[1]]
-            new_rt = xy2rt(new_xy)
+            new_rt = cartesian_to_polar(new_xy)
             return new_rt
+
 @dataclass
 class SpiralMode(Mode):
     """Mode for the marble to draw a spiral outwards from its current location."""
     mode_name: str = "spiral"
+
         # Behavioral flags are inherited from Mode base.
         # Original `become_spiral` flags matched these defaults.
         
@@ -352,18 +359,54 @@ class SpiralMode(Mode):
             self.done = True
         return self.done
 
+SENSOR_THETA_MASK = [i*22.5 for i in range(16)]
 
+@dataclass
+class ReactiveOnlyDirectMode(Mode):
+    """Mode where the marble only moves due to touch sensor activation.
+    Marble goes directly towards hand, as opposed to in the cardinal direction
+    of the touch."""
+    mode_name: str = "reactive only"
+    need_touch_sensors: bool = True
+
+    def next_move(self, move_from):
+        r = move_from.r
+        theta = move_from.t
+
+        speed = 10 # TODO: this is a placeholder
+
+        selected_thetas = [j for i,j in zip(state.touch_sensors, SENSOR_THETA_MASK) if i==1]
+        print(selected_thetas)
+        if selected_thetas == []: # no touch, so no move
+            return Move()
         
-class ReactiveOnlyMode(Mode):
-    """Mode where the marble only moves due to touch sensor activation."""
-    mode_name = "reactive only"
+        avg_theta = sum(selected_thetas) / len(selected_thetas)
+        r1, t1 = (280, avg_theta)
+        print(r1, t1)
 
+        x0, y0 = polar_to_cartesian(r, theta)
+        x1, y1 = polar_to_cartesian(r1, t1)
+
+        (dir_x, dir_y)  = ((x1 - x0), (y1 - y0))
+        len_dir_vector = math.sqrt(dir_x**2 + dir_y**2)
+        (x_to_travel, y_to_travel) = (dir_x*speed/len_dir_vector, dir_y*speed/len_dir_vector)
+        (x_next, y_next) = (x0 + x_to_travel, y0 + y_to_travel)
+
+        print(x_next, y_next)
+
+        r_next, t_next = cartesian_to_polar(x_next, y_next)
+
+        print(r_next, t_next)
+        
+        return Move(r=r_next, t=t_next, s=1000)
+
+@dataclass
 class ReactiveSpiralRippleMode(Mode):
     """
     Mode for the marble to draw a spiral that can be affected by touch sensor activation.
     (Behavioral flags for this mode were not fully defined in the original implementation)
     """
-    mode_name = "reactive spiral ripple"
+    mode_name: str = "reactive spiral ripple"
 
 
 def normalize_vector(xy):
@@ -375,16 +418,18 @@ def get_direction(curr_xy, next_xy):
     dy = next_xy[1] - curr_xy[1]
     return normalize_vector([dx, dy])
 
-def xy2rt(xy):
-    r = math.sqrt(xy[0]**2 + xy[1]**2)
-    theta = math.atan2(xy[1], xy[0])
-    return [r, theta]
+def cartesian_to_polar(x, y):
+    r = math.sqrt(x**2 + y**2)
+    t = math.atan2(y, x)*180/math.pi
+    return float(r), float(t)
 
-def rt2xy(rt):
-    x = rt[0]*math.cos(rt[1])
-    y = rt[0]*math.sin(rt[0])
-    return [x, y]
-
+def polar_to_cartesian(r, t):
+    print(f">>>>> r: {r}")
+    print(f">>>>> t: {t}")
+    t = t*math.pi/180
+    x = r * math.cos(t)
+    y = r * math.sin(t)
+    return float(x), float(y)
 
 def read_from_port(serial_port, stop_event, data_queue):
     """
@@ -649,10 +694,24 @@ def run_grbl_communicator(timeout=.5):
         if (state.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY):
             break
 
+def update_sensor_data(sensor_data_queue):
+    if not sensor_data_queue.empty():
+        # Get the most recent item
+        raw = None
+        while not sensor_data_queue.empty():
+            raw = sensor_data_queue.get()
+            
+        if raw and len(raw) == EXPECTED_SENSOR_BYTESTRING_LENGTH:
+            touch_sensors = [int(char) for char in raw[0:16]]
+            state.touch_sensors = touch_sensors
+            print(f">>>>>> state.touch_sensors {state.touch_sensors}")
+            prox_status = int(raw[16])
+            state.limits_hit.theta_zero = bool(prox_status)
+
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
-UNO_SERIAL_PORT_NAME = 'COM8'
+UNO_SERIAL_PORT_NAME = 'COM5'
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
@@ -679,17 +738,21 @@ def main():
     # --- PROGRAM OPTIONS ---
     state.flags.log_commands = True
     state.flags.log_path = True
-    state.flags.grbl_homing_on = True
+    state.flags.grbl_homing_on = False
     state.flags.connect_to_uno = True
-    state.flags.connect_to_nano = False
+    state.flags.connect_to_nano = True
 
     # --- SETUP ---
     state.flags_to_setup() # allow all types of actionsC
     state.flags.run_control_loop = True
+    state.prev_limits_hit.soft_r_min = False
+    state.prev_move = Move(r=0,t=0)
+    state.next_move = Move(r=0,t=0)
     
     modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     mode_index = 0
-    mode = modes[mode_index]
+    # mode = modes[mode_index]
+    mode = ReactiveOnlyDirectMode()
 
     stop_event = threading.Event()
 
@@ -759,8 +822,10 @@ def main():
             else:
                 print("Ignoring control panel.")
             
+            print(f">>>> mode.need_touch_sensors: {mode.need_touch_sensors}")
             if mode.need_touch_sensors:
                 print("Checking touch sensors...")
+                update_sensor_data(sensor_data_queue)
             else:
                 print("Ignoring touch sensors.")
         else:
@@ -840,7 +905,7 @@ def main():
 # --- ACT ----------------------------------------------------------------------
         print("Acting...")
         state.flags_to_act_phase()
-        if state.flags.run_control_loop:
+        if state.flags.run_control_loop and state.flags.connect_to_uno:
             if state.flags.need_send_next_move and state.flags.log_commands:
                 state.grbl_command_log.append([time.time(), state.next_move.r, state.next_move.t, state.next_move.s])
             run_grbl_communicator()
