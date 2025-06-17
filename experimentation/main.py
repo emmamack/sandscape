@@ -270,7 +270,12 @@ class Mode:
     need_control_panel: bool = False
     need_grbl: bool = True
     
+    def startup(self):
+        """To be called once when the mode is started, for operations like path-precalculation or other initialization. Override in subclass if needed."""
+        pass
+    
     def next_move(self, move_from):
+        """Calculate and return the next move for this mode. Calulate based on the move_from.r and move_from.t in the Move() object given, assuming that all other state parameters will stay the same."""
         print("Base next_move method called. Override in subclass.")
         return Move()
 
@@ -881,6 +886,7 @@ def main():
             mode_index = (mode_index + 1) % len(modes)
             mode = modes[mode_index]
             mode.done = False
+            mode.startup()
             state.flags.input_change = True
             print(f"Next mode: {mode.mode_name}")
             print(mode)
@@ -901,6 +907,8 @@ def main():
             print("Calculating next move from last sent move...")
             state.next_move = mode.next_move(state.prev_move)
             print(f"Next move: {state.next_move}")
+            
+        mode.update()
 
 # --- ACT ----------------------------------------------------------------------
         print("Acting...")
