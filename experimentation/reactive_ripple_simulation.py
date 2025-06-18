@@ -4,6 +4,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import List
 
+LINE_SPACING = 10
+
 @dataclass
 class PolarPt:
     r: float
@@ -46,6 +48,27 @@ def create_cartesian_plot(points: List[CartesianPt]):
     xs = [p.x for p in points]
     ys = [p.y for p in points]
     plt.plot(xs, ys, 'b.-', label='Path')
+    
+    # Add arrows to show direction
+    for i in range(len(points)-1):
+        # Calculate the midpoint for the arrow
+        mid_x = (points[i].x + points[i+1].x) / 2
+        mid_y = (points[i].y + points[i+1].y) / 2
+        
+        # Calculate the direction vector
+        dx = points[i+1].x - points[i].x
+        dy = points[i+1].y - points[i].y
+        
+        # Normalize the direction vector
+        length = math.sqrt(dx*dx + dy*dy)
+        dx = dx/length
+        dy = dy/length
+        
+        # Plot the arrow
+        plt.arrow(mid_x - dx*2, mid_y - dy*2, 
+                 dx*4, dy*4,
+                 head_width=1, head_length=2, fc='red', ec='red')
+    
     plt.grid(True)
     plt.axis('equal')  # This ensures the plot is circular
     plt.title('Path in Cartesian Coordinates')
@@ -58,12 +81,18 @@ def create_random_initial_condition_polar():
     rs = np.random.uniform(0, 50, 10)
     # Generate 10 random angles between 0 and 360 degrees
     ts = np.random.uniform(0, 360, 10)
-    return rs, ts
+    pts = [PolarPt(r=r, t=t) for r, t in zip(rs, ts)]
+    return pts
 
 def create_easy_initial_condition_polar():
-    rs = np.random.uniform(50, 70, 10)
-    ts = list(range(0, 359, 39))
-    return rs, ts
+    # rs = np.random.uniform(50, 70, 10)
+    rs = [50]*10
+    ts = list(range(0, 360, 36))
+    pts = [PolarPt(r=r, t=t) for r, t in zip(rs, ts)]
+    # pts.extend([PolarPt(r=50, t=0), PolarPt(r=90, t=0)])
+    pts.extend([PolarPt(r=50, t=0)])
+    print(pts)
+    return pts
 
 def create_easy_initial_condition_cartesian() -> List[CartesianPt]:
     points = []
@@ -74,7 +103,7 @@ def create_easy_initial_condition_cartesian() -> List[CartesianPt]:
     points.append(CartesianPt(33, 0))
     return points
 
-def interpolate(points: List[CartesianPt], distance_between_points: float) -> List[CartesianPt]:
+def interpolate_cartesian(points: List[CartesianPt], distance_between_points: float) -> List[CartesianPt]:
     interpolated_points = []
     
     for i in range(len(points)-1):
@@ -101,7 +130,40 @@ def interpolate(points: List[CartesianPt], distance_between_points: float) -> Li
     
     return interpolated_points
 
-def get_first_pt(points: List[CartesianPt]) -> CartesianPt:
+def interpolate_polar(points: List[PolarPt], distance_between_points: float) -> List[PolarPt]:
+    interpolated_points = []
+    
+    for i in range(len(points)-1):
+        # Add the current point
+        interpolated_points.append(points[i])
+        
+        # Convert current and next points to Cartesian for distance calculation
+        curr_cart = polar_to_cartesian(points[i])
+        next_cart = polar_to_cartesian(points[i+1])
+        
+        # Calculate the total distance between points
+        dx = next_cart.x - curr_cart.x
+        dy = next_cart.y - curr_cart.y
+        total_distance = math.sqrt(dx*dx + dy*dy)
+        
+        # Calculate how many points we need to add
+        num_points = int(total_distance / distance_between_points)
+        
+        # Add the interpolated points
+        for j in range(1, num_points + 1):
+            t = j * distance_between_points / total_distance
+            # Interpolate in Cartesian coordinates
+            x = curr_cart.x + t * dx
+            y = curr_cart.y + t * dy
+            # Convert back to polar
+            interpolated_points.append(cartesian_to_polar(CartesianPt(x, y)))
+    
+    # Add the final point
+    interpolated_points.append(points[-1])
+    
+    return interpolated_points
+
+def get_first_pt_polar(points: List[CartesianPt]) -> CartesianPt:
     pass
     '''Ideas:
     can go anywhere that's one radius away from starting point
@@ -115,7 +177,60 @@ def get_first_pt(points: List[CartesianPt]) -> CartesianPt:
     for now, so bias towards counterclockwise from current point
     '''
 
-# Example usage
+def get_tangent_slope(p0, p1):
+    return (p1.y - p0.y)/(p1.x-p0.x)
+
+def is_direction_towards_origin(point, dir):
+    # Dot product between position vector and direction vector
+    dot_product = point.x * dir.x + point.y * dir.y
+    
+    if dot_product > 0:
+        return 1  # Away from origin
+    elif dot_product < 0:
+        return -1  # Towards origin
+    else:
+        return 0  # Perpendicular
+
+def get_position_from_target_pt(points, target_index):
+    # Get the target point and its neighbors
+    target_pt = points[target_index]
+    # TODO: handle edge case where there's a line crossing
+    # or maybe just transform set of points to not have line crossing as pre-processing
+    prev_pt = points[target_index - 1]
+    next_pt = points[target_index + 1]
+    
+    # Average the direction vectors to get the tangent direction
+    avg_dir_x = (next_pt.x - prev_pt.x) / 2
+    avg_dir_y = (next_pt.y - prev_pt.y) / 2
+    
+    # Calculate the perpendicular direction (rotate 90 degrees)
+    perp_dir_x = -avg_dir_y
+    perp_dir_y = avg_dir_x
+
+    if is_direction_towards_origin(target_pt, CartesianPt(perp_dir_x, perp_dir_y)):
+        perp_dir_x = -perp_dir_x
+        perp_dir_y = -perp_dir_y
+    
+    # Normalize the perpendicular direction to get a unit vector
+    magnitude = math.sqrt(perp_dir_x*perp_dir_x + perp_dir_y*perp_dir_y)
+    unit_perp_x = perp_dir_x / magnitude
+    unit_perp_y = perp_dir_y / magnitude
+    
+    points.append(
+        CartesianPt(
+            x = target_pt.x + unit_perp_x * LINE_SPACING, 
+            y = target_pt.y + unit_perp_y * LINE_SPACING
+        )
+    )
+
+    return points
+
 points = create_easy_initial_condition_cartesian()
-points = interpolate(points, 2)  # Points will be 2 units apart
+points = interpolate_cartesian(points, 2) 
+for ind in range(1, 100):
+    points = get_position_from_target_pt(points, ind)
 create_cartesian_plot(points)
+
+# points = create_easy_initial_condition_polar()
+# points = interpolate_polar(points, 10)
+# create_polar_plot(points)
