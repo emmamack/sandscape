@@ -758,8 +758,8 @@ def main():
     
     modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     mode_index = 0
-    mode = modes[mode_index]
-    # mode = ReactiveOnlyDirectMode()
+    # mode = modes[mode_index]
+    mode = ReactiveOnlyDirectMode()
 
     stop_event = threading.Event()
 
