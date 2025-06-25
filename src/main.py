@@ -415,6 +415,29 @@ class ReactiveSpiralRippleMode(Mode):
     """
     mode_name: str = "reactive spiral ripple"
 
+@dataclass
+class SpikyBall(Mode):
+    mode_name: str = "spiky ball"
+    width_step: int = 4
+
+    def next_move(self, move_from):
+        # TODO: update when main loop handling of crossing 360 is updated
+        # this is all janky as fuck but doesn't require more previous steps and is continuous
+        if move_from.r == 0 and move_from.t % (self.width_step*2) == 0:
+            r_next = R_MAX 
+            t_next = move_from.t
+        if move_from.r != 0 and move_from.t % (self.width_step*2) == 0:
+            r_next = R_MAX 
+            t_next = move_from.t + self.width_step
+        if move_from.r != 0 and move_from.t % (self.width_step*2) != 0:
+            r_next = 0
+            t_next = move_from.t
+        if move_from.r == 0 and move_from.t % (self.width_step*2) != 0:
+            r_next = 0
+            t_next = move_from.t + self.width_step
+        
+        return Move(r=r_next, t=t_next, s=4000)
+
 
 def normalize_vector(xy):
     length = math.sqrt(xy[0]**2 + xy[1]**2)
@@ -595,7 +618,7 @@ def check_move(move):
         elif state.limits_hit.soft_r_max and move.r > state.grbl.mpos_r:
             print(f"Requested move {move} is into the soft_r_max limit switch.")
             return False
-        elif move.r >= R_MAX or move.r < R_MIN:
+        elif move.r > R_MAX or move.r < R_MIN:
             print(f"Requested move {move} is out of bounds.")
             return False
     print(f"Checks passed.")
@@ -722,7 +745,7 @@ UNO_SERIAL_PORT_NAME = 'COM5'
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
-NANO_SERIAL_PORT_NAME = 'COM4' #TODO
+NANO_SERIAL_PORT_NAME = 'COM6' #TODO
 NANO_BAUD_RATE = 9600
 
 # --- SAND TABLE INFORMATION ---
@@ -747,7 +770,7 @@ def main():
     state.flags.log_path = True
     state.flags.grbl_homing_on = False
     state.flags.connect_to_uno = True
-    state.flags.connect_to_nano = True
+    state.flags.connect_to_nano = False
 
     # --- SETUP ---
     state.flags_to_setup() # allow all types of actionsC
@@ -759,7 +782,7 @@ def main():
     modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     mode_index = 0
     # mode = modes[mode_index]
-    mode = ReactiveOnlyDirectMode()
+    mode = SpikyBall()
 
     stop_event = threading.Event()
 
