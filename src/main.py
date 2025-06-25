@@ -11,6 +11,7 @@ from typing import Optional, List, Union
 from enum import Enum
 
 from parse_grbl_status import *
+from parse_svg import SVGParser, create_polar_plot
 
 EXPECTED_SENSOR_BYTESTRING_LENGTH = 17
 
@@ -26,6 +27,19 @@ class Move:
             return True
         else:
             return False
+
+@dataclass
+class CartesianPt:
+    x: int
+    y: int
+
+    def to_tuple(self):
+        return (self.x, self.y)
+
+@dataclass
+class PolarPt:
+    r: float
+    t: float
 
 # --- GRBL COMMANDS ---
 class GrblCmd(Enum):
@@ -269,6 +283,9 @@ class Mode:
     need_touch_sensors: bool = False
     need_control_panel: bool = False
     need_grbl: bool = True
+
+    def __post_init__(self):
+        self.startup()
     
     def startup(self):
         """To be called once when the mode is started, for operations like path-precalculation or other initialization. Override in subclass if needed."""
@@ -314,10 +331,10 @@ class WaypointMode(Mode):
             return None
         else:
             self.done = False
-            xy = polar_to_cartesian(rt)
+            xy = polar_to_cartesian_non_object(rt)
             vector = get_direction(xy, self.waypoints_xy[self.waypoints_i])*self.segment_length
             new_xy = [xy[0] + vector[0], xy[1] + vector[1]]
-            new_rt = cartesian_to_polar(new_xy)
+            new_rt = cartesian_to_polar_non_object(new_xy)
             return new_rt
 
 @dataclass
@@ -389,8 +406,8 @@ class ReactiveOnlyDirectMode(Mode):
         r1, t1 = (280, avg_theta)
         print(r1, t1)
 
-        x0, y0 = polar_to_cartesian(r, theta)
-        x1, y1 = polar_to_cartesian(r1, t1)
+        x0, y0 = polar_to_cartesian_non_object(r, theta)
+        x1, y1 = polar_to_cartesian_non_object(r1, t1)
 
         (dir_x, dir_y)  = ((x1 - x0), (y1 - y0))
         len_dir_vector = math.sqrt(dir_x**2 + dir_y**2)
@@ -399,7 +416,7 @@ class ReactiveOnlyDirectMode(Mode):
 
         print(x_next, y_next)
 
-        r_next, t_next = cartesian_to_polar(x_next, y_next)
+        r_next, t_next = cartesian_to_polar_non_object(x_next, y_next)
 
         t_next = t_next % 360
 
@@ -416,7 +433,7 @@ class ReactiveSpiralRippleMode(Mode):
     mode_name: str = "reactive spiral ripple"
 
 @dataclass
-class SpikyBall(Mode):
+class SpikyBallMode(Mode):
     mode_name: str = "spiky ball"
     width_step: int = 4
 
@@ -438,6 +455,32 @@ class SpikyBall(Mode):
         
         return Move(r=r_next, t=t_next, s=4000)
 
+@dataclass
+class SVGMode(Mode):
+    polar_pts: List[PolarPt] = field(default_factory=list)
+    mode_name: str = "svg"
+    svg_file_path: str = "..\svg_examples\inkscape_hi.svg"
+    pt_index: int = 0
+
+    def startup(self):
+        svg_parser = SVGParser()
+        pts = svg_parser.get_pts_from_file(self.svg_file_path)
+        self.polar_pts = svg_parser.convert_to_table_axes(pts)
+        # create_polar_plot(polar_pts)
+    
+    '''next up:
+    lines have to be descritized
+    control zeroing thing
+    kinda looks like it's backwards'''
+    def next_move(self, move_from):
+        next_pt = self.polar_pts[self.pt_index]
+        self.pt_index += 1
+        if self.pt_index >= len(self.polar_pts):
+            self.done = True
+            return Move()
+        
+        return Move(r=next_pt.r, t=next_pt.t, s=2000)
+
 
 def normalize_vector(xy):
     length = math.sqrt(xy[0]**2 + xy[1]**2)
@@ -448,18 +491,24 @@ def get_direction(curr_xy, next_xy):
     dy = next_xy[1] - curr_xy[1]
     return normalize_vector([dx, dy])
 
-def cartesian_to_polar(x, y):
+def cartesian_to_polar_non_object(x, y):
     r = math.sqrt(x**2 + y**2)
     t = math.atan2(y, x)*180/math.pi
     return float(r), float(t)
 
-def polar_to_cartesian(r, t):
+def polar_to_cartesian_non_object(r, t):
     print(f">>>>> r: {r}")
     print(f">>>>> t: {t}")
     t = t*math.pi/180
     x = r * math.cos(t)
     y = r * math.sin(t)
     return float(x), float(y)
+
+def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
+    r = math.sqrt(pt.x**2 + pt.y**2)
+    t = math.atan2(pt.y, pt.x)*180/math.pi
+    return PolarPt(float(r), float(t))
+
 
 def read_from_port(serial_port, stop_event, data_queue):
     """
@@ -779,10 +828,10 @@ def main():
     state.prev_move = Move(r=0,t=0)
     state.next_move = Move(r=0,t=0)
     
-    modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    modes = [SVGMode()]
     mode_index = 0
-    # mode = modes[mode_index]
-    mode = SpikyBall()
+    mode = modes[mode_index]
 
     stop_event = threading.Event()
 
@@ -911,7 +960,6 @@ def main():
             mode_index = (mode_index + 1) % len(modes)
             mode = modes[mode_index]
             mode.done = False
-            mode.startup()
             state.flags.input_change = True
             print(f"Next mode: {mode.mode_name}")
             print(mode)
