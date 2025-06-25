@@ -195,24 +195,18 @@ def remove_duplicates(pts):
     return duplicates_removed
 
 def interpolate_single(p0, p1):
-     # Calculate the total distance between pts
-    dx = p1.x - p0.x
-    dy = p1.y - p0.y
-    total_distance = math.sqrt(dx*dx + dy*dy)
-    
-    # Calculate how many pts we need to add
+    total_distance = get_dist(p0, p1)
     num_pts = math.floor(total_distance / INTERP_SPACING)
     
     pts_to_add = []
     # Add the interpolated pts
     for j in range(1, num_pts + 1):
         t = j * INTERP_SPACING / total_distance
-        x = p0.x + t * dx
-        y = p0.y + t * dy
+        x = p0.x + t * (p1.x - p0.x)
+        y = p0.y + t * (p1.y - p0.y)
         pts_to_add.append(CartesianPt(x, y))
     
     pts_to_add.append(p1)
-    # print(pts_to_add)
     return pts_to_add
 
 def get_position_from_target_pt(pts, target_index):
@@ -245,16 +239,84 @@ def get_position_from_target_pt(pts, target_index):
             y = target_pt.y + unit_perp_y * LINE_SPACING
     )
 
-    next_pts_interp = interpolate_single(pts[-1], next_pt)
-    pts.extend(next_pts_interp)
+    return next_pt
 
-    return pts
+    # next_pts_interp = interpolate_single(pts[-1], next_pt)
+    # pts.extend(next_pts_interp)
+
+    # return pts
+
+def get_dist(p0, p1):
+    return math.sqrt((p1.x - p0.x)**2 + (p1.y - p0.y)**2)
+
+def check_for_collision_efficient(pts, proposed_pt):
+    """
+    Efficiently check if any point in pts is within LINE_SPACING of proposed_pt.
+    Uses a grid-based spatial data structure for O(1) average case lookup.
+    """
+    # Create a grid where each cell is LINE_SPACING x LINE_SPACING
+    # This ensures points in the same cell are within LINE_SPACING of each other
+    grid = {}
+    
+    # Build the spatial index for existing points
+    for pt in pts:
+        # Calculate grid coordinates
+        grid_x = int(pt.x / LINE_SPACING)
+        grid_y = int(pt.y / LINE_SPACING)
+        
+        # Add point to all neighboring cells (including diagonal neighbors)
+        # This handles edge cases where points are near cell boundaries
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                cell_key = (grid_x + dx, grid_y + dy)
+                if cell_key not in grid:
+                    grid[cell_key] = []
+                grid[cell_key].append(pt)
+    
+    # Check if proposed point collides with any existing points
+    proposed_grid_x = int(proposed_pt.x / LINE_SPACING)
+    proposed_grid_y = int(proposed_pt.y / LINE_SPACING)
+    
+    # Check the cell where proposed point would be placed and neighboring cells
+    for dx in [-1, 0, 1]:
+        for dy in [-1, 0, 1]:
+            cell_key = (proposed_grid_x + dx, proposed_grid_y + dy)
+            if cell_key in grid:
+                for existing_pt in grid[cell_key]:
+                    if get_dist(proposed_pt, existing_pt) < LINE_SPACING:
+                        return True  # Collision detected
+    
+    return False  # No collision
+
+def check_for_collision(pts, proposed_pt):
+    trailing_grace = 2*LINE_SPACING/INTERP_SPACING #TODO: this needs work
+    for pt in pts[:-1*int(trailing_grace)]:
+        if get_dist(pt, proposed_pt) < LINE_SPACING-.001: #deal with floating point errors
+            return True
+    return False
+
+def get_next_legal_target(pts, test_ind):
+    current_pt = pts[-1]
+    
+    found_target = False
+    while not found_target:
+        test_position = get_position_from_target_pt(pts, test_ind)
+        print(test_position)
+        if not check_for_collision(pts, test_position):
+            return test_ind, test_position
+        test_ind += 1
+
+
 
 pts = create_easy_initial_condition_cartesian()
 pts = interpolate_batch(pts, 0, len(pts)) 
-for ind in range(1, 300):
-    pts = get_position_from_target_pt(pts, ind)
-pts = remove_duplicates(pts) #TODO: prevent duplicates in the first place
+target_pt_ind = 1
+while target_pt_ind < 200:
+    next_pt = get_position_from_target_pt(pts, target_pt_ind)
+    if check_for_collision(pts, next_pt):
+        target_pt_ind, next_pt = get_next_legal_target(pts, target_pt_ind)
+    next_pts_interp = interpolate_single(pts[-1], next_pt)
+    pts.extend(next_pts_interp)
 create_cartesian_plot(pts)
 
 # pts = create_easy_initial_condition_polar()

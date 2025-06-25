@@ -7,7 +7,7 @@ import bezier
 import numpy as np
 import math
 
-from parse_svg import Curve, Point
+from parse_svg import Curve, CartesianPt
 
 def tangent_offset_curve(curve, offset_dist):
     """_summary_
