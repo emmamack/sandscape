@@ -2,12 +2,12 @@ import xml.etree.ElementTree as et
 from dataclasses import dataclass
 from typing import List
 import matplotlib.pyplot as plt
-import re
+import regrb
 import bezier
 import numpy as np
 import math
 
-SEG_LENGTH = 5
+SEG_LENGTH = 10
 
 @dataclass
 class CartesianPt:
@@ -245,7 +245,7 @@ def create_polar_plot(pts: List[PolarPt]):
 
 def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
     r = math.sqrt(pt.x**2 + pt.y**2)
-    t = math.atan2(pt.y, pt.x)*180/math.pi
+    t = 360 - math.atan2(pt.y, pt.x)*180/math.pi
     return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
