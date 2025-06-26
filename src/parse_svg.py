@@ -91,30 +91,54 @@ class SVGParser:
         pts = [CartesianPt(x=float(x), y=float(y)) for x, y in zip(evaluator_output[0], evaluator_output[1])]
         
         return pts
+    
+    def get_dist(self, p0, p1):
+        return math.sqrt((p1.x - p0.x)**2 + (p1.y - p0.y)**2)
 
-
+    def interpolate_single(self, p0, p1):
+        total_distance = self.get_dist(p0, p1)
+        num_pts = math.floor(total_distance / SEG_LENGTH)
+        
+        pts_to_add = []
+        # Add the interpolated pts
+        for j in range(1, num_pts + 1):
+            t = j * SEG_LENGTH / total_distance
+            x = p0.x + t * (p1.x - p0.x)
+            y = p0.y + t * (p1.y - p0.y)
+            pts_to_add.append(CartesianPt(x, y))
+        
+        pts_to_add.append(p1)
+        return pts_to_add
 
     def parse_multiple_curves(self, curves_raw):
         curves = self.split_raw_curves(curves_raw)
         
         pts = [CartesianPt(x=0, y=0)]
+        first_pt = True
         for curve in curves:
             prev_pt = pts[-1]
             if curve.marker=='M' or curve.marker=="L": # moveto, lineto (absolute)
                 # svg defines M and L as different, but since the ball can't float, to us they are the same
                 pts.append(CartesianPt(x=curve.body[0], y=curve.body[1]))
             elif curve.marker=='m' or curve.marker=="l": # moveto, lineto (relative)
-                pts.append(CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1]))
+                if first_pt:
+                    pts.append(CartesianPt(x=curve.body[0], y=curve.body[1]))
+                else:
+                    pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1])))
+                    print(CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1]))
             elif curve.marker=='h': # horizontal line
-                pts.append(CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y))
+                pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y)))
             elif curve.marker=='v': # vertical line
-                pts.append(CartesianPt(x=prev_pt.x, y=prev_pt.y+curve.body[0]))
+                pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x, y=prev_pt.y+curve.body[0])))
             elif curve.marker=='c': # bezier curve
                 pts.extend(self.discretize_bezier(curve.body, prev_pt))
             elif curve.marker=='z': # end of curve
                 pass
             else:
                 print(f"Encountered unexpected curve marker: {curve.marker}")
+            
+            if first_pt:
+                first_pt = False
         
         return pts[1:] # remove artificial (0,0) point
             
@@ -149,7 +173,6 @@ class SVGParser:
     def get_pts_from_file(self, file):
         tree = et.parse(file)
         root = tree.getroot()
-        print(f"root: {root.attrib}")
         if root.attrib['version'] != '1.1':
             print(f"Warning! Unsupported svg version: {root.attrib['version']}")
 
@@ -202,12 +225,22 @@ def create_polar_plot(pts: List[PolarPt]):
     # Create polar plot
     plt.figure(figsize=(8, 8))
     ax = plt.subplot(111, projection='polar')
-    ax.plot(ts_rad, rs, 'b.-', label='Path')
+    
+    # Create rainbow color gradient based on point position
+    colors = plt.cm.rainbow(np.linspace(0, 1, len(pts)))
+    
+    # Plot each segment with its corresponding color
+    for i in range(len(pts) - 1):
+        ax.plot([ts_rad[i], ts_rad[i+1]], [rs[i], rs[i+1]], color=colors[i], linewidth=2)
+    
+    # Plot points with rainbow colors
+    scatter = ax.scatter(ts_rad, rs, c=np.linspace(0, 1, len(pts)), cmap='rainbow', s=30)
+    
     ax.set_rmax(300)  # Set maximum radius to 300
     ax.set_rticks([0, 100, 200, 300])  # Set radius ticks
     ax.set_thetagrids(np.arange(0, 360, 45))  # Set theta grid lines every 45 degrees
     ax.grid(True)
-    ax.set_title('Path in Polar Coordinates')
+    ax.set_title('Path in Polar Coordinates (Rainbow)')
     plt.show()
 
 def cartesian_to_polar(pt: CartesianPt) -> PolarPt:

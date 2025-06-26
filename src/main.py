@@ -817,7 +817,7 @@ def main():
     # --- PROGRAM OPTIONS ---
     state.flags.log_commands = True
     state.flags.log_path = True
-    state.flags.grbl_homing_on = False
+    state.flags.grbl_homing_on = True
     state.flags.connect_to_uno = True
     state.flags.connect_to_nano = False
 
@@ -828,8 +828,9 @@ def main():
     state.prev_move = Move(r=0,t=0)
     state.next_move = Move(r=0,t=0)
     
-    # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
-    modes = [SVGMode()]
+    modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    # modes = 
+    # modes = [SVGMode()]
     mode_index = 0
     mode = modes[mode_index]
 
