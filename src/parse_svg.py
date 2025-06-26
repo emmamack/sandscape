@@ -2,7 +2,7 @@ import xml.etree.ElementTree as et
 from dataclasses import dataclass
 from typing import List
 import matplotlib.pyplot as plt
-import regrb
+import re
 import bezier
 import numpy as np
 import math
@@ -245,7 +245,7 @@ def create_polar_plot(pts: List[PolarPt]):
 
 def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
     r = math.sqrt(pt.x**2 + pt.y**2)
-    t = 360 - math.atan2(pt.y, pt.x)*180/math.pi
+    t = 360 - (math.atan2(pt.y, pt.x)*180/math.pi % 360)
     return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
@@ -259,5 +259,8 @@ if __name__ == "__main__":
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
     polar_pts = svg_parser.convert_to_table_axes(pts)
+    # for polar_pt in polar_pts:
+    #     if polar_pt.t > 360 or polar_pt.t < 0:
+    #         print(polar_pt)
     # plot_pts(pts)
     create_polar_plot(polar_pts)
