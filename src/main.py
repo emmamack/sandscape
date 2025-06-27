@@ -821,8 +821,9 @@ def set_t_grbl():
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
-UNO_SERIAL_PORT_NAME = 'COM5' # Emma
+# UNO_SERIAL_PORT_NAME = 'COM5' # Emma
 # UNO_SERIAL_PORT_NAME = 'COM8' # Jules
+UNO_SERIAL_PORT_NAME = "/dev/ttyACM1" #pi
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
@@ -860,8 +861,8 @@ def main():
     state.prev_move = Move(r=0,t=0,t_grbl=0)
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
-    # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
-    modes = [SVGMode(svg_file_path="..\svg_examples\youre_hot.svg")]
+    modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    # modes = [SVGMode(svg_file_path="..\svg_examples\youre_hot.svg")]
     mode_index = 0
     mode = modes[mode_index]
 
