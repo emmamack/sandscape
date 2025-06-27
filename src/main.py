@@ -21,6 +21,7 @@ class Move:
     t: Optional[float] = None
     s: Optional[float] = None
     received: Optional[bool] = False
+    t_grbl: Optional[float] = None
 
     def is_empty(self):
         if self.r == None and self.t == None and self.s == None:
@@ -286,6 +287,9 @@ class Mode:
 
     def __post_init__(self):
         self.startup()
+        
+    def set_next_speed(self):
+        state.next_move.s = (-2*math.pi*state.next_move.r + self.base_linspeed + 360) * state.control_panel.speed
     
     def startup(self):
         """To be called once when the mode is started, for operations like path-precalculation or other initialization. Override in subclass if needed."""
@@ -352,9 +356,9 @@ class SpiralMode(Mode):
             return Move()
         else:
             if r>30:
-                seg_angle = 360 * self.segment_length/r*2*math.pi
+                seg_angle = 60 * self.segment_length/r*2*math.pi
             else:
-                seg_angle = 360
+                seg_angle = 60
 
             new_theta = theta + seg_angle*self.theta_dir
             new_r = r + self.pitch*seg_angle/360*self.r_dir
@@ -648,7 +652,7 @@ def handle_grbl_response():
             state.flags.need_reset = False
 
 def format_move(move):
-    return f"G1 X{move.r:.2f} Z{move.t:.2f} F{move.s:.2f}\n"
+    return f"G1 X{move.r:.2f} Z{move.t_grbl:.2f} F{move.s:.2f}\n"
 
 def check_move(move):
     """Check move validity based on limits and grbl status."""
@@ -787,14 +791,43 @@ def update_sensor_data(sensor_data_queue):
             prox_status = int(raw[16])
             state.limits_hit.theta_zero = bool(prox_status)
 
+
+def set_t_grbl():
+    # standard case
+    if (state.prev_move.t_grbl != None 
+        and state.prev_move.t_grbl != None 
+        and state.next_move.t != None):
+        delta = state.next_move.t - state.prev_move.t
+        if delta > 180:
+            delta -= 360
+        elif delta < -180:
+            delta += 360
+        state.next_move.t_grbl = state.prev_move.t_grbl + delta
+        return True
+    if state.next_move.t == None:
+        return False
+    # if  state.prev_move.t == None:
+    #     if state.prev_move.t_grbl == None:
+    #         state.prev_move.t_grbl = state.grbl.mpos_t
+    #     state.prev_move.t = state.prev_move.t_grbl % 360
+    # if  state.prev_move.t_grbl == None:
+    #     if state.prev_move.t == None:
+    #         state.prev_move.t_grbl = 0
+    #     else:
+    #         state.prev_move.t = state.prev_move.t_grbl
+        
+            
+    
+
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
-UNO_SERIAL_PORT_NAME = 'COM5'
+# UNO_SERIAL_PORT_NAME = 'COM5' # Emma
+UNO_SERIAL_PORT_NAME = 'COM8' # Jules
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
-NANO_SERIAL_PORT_NAME = 'COM6' #TODO
+NANO_SERIAL_PORT_NAME = 'COM6'
 NANO_BAUD_RATE = 9600
 
 # --- SAND TABLE INFORMATION ---
@@ -825,12 +858,12 @@ def main():
     state.flags_to_setup() # allow all types of actionsC
     state.flags.run_control_loop = True
     state.prev_limits_hit.soft_r_min = False
-    state.prev_move = Move(r=0,t=0)
-    state.next_move = Move(r=0,t=0)
+    state.prev_move = Move(r=0,t=0,t_grbl=0)
+    state.next_move = Move(r=0,t=0,t_grbl=0)
     
-    modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     # modes = 
-    # modes = [SVGMode()]
+    modes = [SpiralMode(mode_name="spiral out"), SVGMode()]
     mode_index = 0
     mode = modes[mode_index]
 
@@ -952,7 +985,7 @@ def main():
             # RxBuffer is 0 when full, 128 when empty
             state.flags.buffer_space = True
         
-        # If the mode is done, cyle to next mode
+        # If the mode is done, cyle to next modeC
         if (mode.is_done() 
             and state.grbl.status == GrblStatusOptions.IDLE.value 
             and state.grbl.planner_buffer == 15):
@@ -971,7 +1004,9 @@ def main():
             state.flags.need_reset = True
             state.flags.need_send_next_move = True
             print("Calculating next move from current position...")
-            state.next_move = mode.next_move(Move(r=state.grbl.mpos_r, t=state.grbl.mpos_t, s=0))
+            state.prev_move = Move(r=state.grbl.mpos_r, t_grbl=state.grbl.mpos_t, s=0, t=state.grbl.mpos_t % 360)
+            state.next_move = mode.next_move(state.prev_move)
+            set_t_grbl()
             print(f"Next move: {state.next_move}")
         
         # If input has not changed and buffer is low, 
@@ -980,6 +1015,7 @@ def main():
             state.flags.need_send_next_move = True
             print("Calculating next move from last sent move...")
             state.next_move = mode.next_move(state.prev_move)
+            set_t_grbl()
             print(f"Next move: {state.next_move}")
             
         mode.update()
@@ -1005,7 +1041,7 @@ def main():
     if state.flags.log_path or state.flags.log_commands:
         print("Saving data...")
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"table_log_{timestamp}.json"
+        filename = f"../logs/table_log_{timestamp}.json"
 
         data_to_save = {
             "path_history": state.path_history,
