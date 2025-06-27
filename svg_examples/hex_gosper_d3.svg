@@ -43,11 +43,11 @@
        id="path1-4"
        style="fill:none;fill-opacity:1;stroke:#000000;stroke-opacity:1;vector-effect:non-scaling-stroke"
        transform="matrix(0.43556478,0,0,0.43556478,-612.39651,-52.863575)" />
-    <circle
+    <!-- <circle
        style="display:inline;fill:none;stroke:#000000;stroke-width:0.284607;stroke-opacity:1"
        id="path1"
        cx="273"
        cy="273"
-       r="273" />
+       r="273" /> -->
   </g>
 </svg>

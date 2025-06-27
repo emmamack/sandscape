@@ -464,7 +464,7 @@ class SpikyBallMode(Mode):
 class SVGMode(Mode):
     polar_pts: List[PolarPt] = field(default_factory=list)
     mode_name: str = "svg"
-    svg_file_path: str = "..\svg_examples\hex_gosper_d3.svg"
+    svg_file_path: str = "..\svg_examples\youre_hot.svg"
     pt_index: int = 0
 
     def startup(self):
@@ -473,6 +473,7 @@ class SVGMode(Mode):
         pts = svg_parser.scale_and_center(pts)
         self.polar_pts = svg_parser.convert_to_table_axes(pts)
         # create_polar_plot(self.polar_pts)
+        self.pt_index = 0
     
     def next_move(self, move_from):
         next_pt = self.polar_pts[self.pt_index]
@@ -860,7 +861,7 @@ def main():
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
     # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
-    modes = [SVGMode(svg_file_path="..\svg_examples\hex_gosper_d3.svg")]
+    modes = [SVGMode(svg_file_path="..\svg_examples\youre_hot.svg")]
     mode_index = 0
     mode = modes[mode_index]
 

@@ -30,7 +30,9 @@ class SVGParser:
         'l': (2, True),
         'L': (2, False),
         'h': (1, False),
+        'H': (1, True),
         'v': (1, False),
+        'V': (1, True),
         'c': (6, True)
     }
 
@@ -61,13 +63,17 @@ class SVGParser:
         curves = []
 
         for curve_block in split_at_letter:
+            print(curve_block)
             marker = curve_block[0]
 
             if marker == 'z': #discard end markers
                 continue
+            elif marker not in self.curve_types_to_expected_length:
+                raise RuntimeError("Encountered unsupported curve type in SVG")
 
             body = [float(x) for x in re.findall(r'-?\d+\.?\d*', curve_block[1:])]
-            curve_length = self.curve_types_to_expected_length[marker][0]
+
+            curve_length = self.curve_types_to_expected_length[marker][0] 
             single_curves = [body[i:i + curve_length] for i in range(0, len(body), curve_length)]
             for single_curve in single_curves:
                 curves.append(self.Curve(
@@ -118,8 +124,7 @@ class SVGParser:
         for curve in curves:
             prev_pt = pts[-1]
             if curve.marker=='M' or curve.marker=="L": # moveto, lineto (absolute)
-                # svg defines M and L as different, but since the ball can't float, to us they are the same
-                pts.append(CartesianPt(x=curve.body[0], y=curve.body[1]))
+                pts.append(CartesianPt(x=curve.body[0], y=curve.body[1])) # TODO: what is getting an interpolated line is improperly mapped
             elif curve.marker=='m' or curve.marker=="l": # moveto, lineto (relative)
                 if first_pt:
                     pts.append(CartesianPt(x=curve.body[0], y=curve.body[1]))
@@ -127,6 +132,10 @@ class SVGParser:
                     pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1])))
             elif curve.marker=='h': # horizontal line
                 pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y)))
+            elif curve.marker=='H': # horizontal line
+                pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=curve.body[0], y=prev_pt.y)))
+            elif curve.marker=='V': # vertical line, absolute
+                pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x, y=curve.body[0])))
             elif curve.marker=='v': # vertical line
                 pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x, y=prev_pt.y+curve.body[0])))
             elif curve.marker=='c': # bezier curve
@@ -266,9 +275,9 @@ def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
     return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
-    svg_file = "..\svg_examples\hex_gosper_d3.svg"
+    # svg_file = "..\svg_examples\hex_gosper_d3.svg"
     # svg_file = "..\svg_examples\inkscape_hi.svg"
-    # svg_file = "..\svg_examples\youre_hot.svg"
+    svg_file = "..\svg_examples\youre_hot.svg"
     # svg_file = "..\svg_examples\cabin.svg"
     # svg_file = "..\svg_examples\Archimedean_spiral.svg"
     # svg_file = "..\svg_examples\inkscape_spiral.svg"
@@ -277,7 +286,7 @@ if __name__ == "__main__":
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
-    pts = svg_parser.scale_and_center(pts)
-    polar_pts = svg_parser.convert_to_table_axes(pts)
-    # plot_pts(pts)
-    create_polar_plot(polar_pts)
+    # pts = svg_parser.scale_and_center(pts)
+    # polar_pts = svg_parser.convert_to_table_axes(pts)
+    plot_pts(pts)
+    # create_polar_plot(polar_pts)
