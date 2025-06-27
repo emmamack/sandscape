@@ -272,7 +272,7 @@ class Mode:
     """
     mode_name: str = "base"  # Should be overridden by subclasses
     segment_length: int = 5
-    base_linspeed: int = 8000 #mm/min
+    base_linspeed: int = 9000 #mm/min
     r_dir: int = 1
     theta_dir: int = 1
     pitch: int = 14 
@@ -289,7 +289,8 @@ class Mode:
         self.startup()
         
     def set_next_speed(self):
-        state.next_move.s = (-2*math.pi*state.next_move.r + self.base_linspeed + 360) * state.control_panel.speed
+        if state.next_move.r != None:
+            state.next_move.s = (-2*math.pi*state.next_move.r + self.base_linspeed + 360) * state.control_panel.speed
     
     def startup(self):
         """To be called once when the mode is started, for operations like path-precalculation or other initialization. Override in subclass if needed."""
@@ -863,7 +864,8 @@ def main():
     
     # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     # modes = 
-    modes = [SpiralMode(mode_name="spiral out"), SVGMode()]
+    modes = [SpiralMode(mode_name="spiral out"), 
+             SVGMode(svg_file_path="..\svg_examples\hex_gosper_d3.svg")]
     mode_index = 0
     mode = modes[mode_index]
 
@@ -1007,6 +1009,7 @@ def main():
             state.prev_move = Move(r=state.grbl.mpos_r, t_grbl=state.grbl.mpos_t, s=0, t=state.grbl.mpos_t % 360)
             state.next_move = mode.next_move(state.prev_move)
             set_t_grbl()
+            mode.set_next_speed()
             print(f"Next move: {state.next_move}")
         
         # If input has not changed and buffer is low, 
@@ -1016,6 +1019,7 @@ def main():
             print("Calculating next move from last sent move...")
             state.next_move = mode.next_move(state.prev_move)
             set_t_grbl()
+            mode.set_next_speed()
             print(f"Next move: {state.next_move}")
             
         mode.update()
