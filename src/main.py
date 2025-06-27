@@ -464,19 +464,16 @@ class SpikyBallMode(Mode):
 class SVGMode(Mode):
     polar_pts: List[PolarPt] = field(default_factory=list)
     mode_name: str = "svg"
-    svg_file_path: str = "..\svg_examples\inkscape_hi.svg"
+    svg_file_path: str = "..\svg_examples\hex_gosper_d3.svg"
     pt_index: int = 0
 
     def startup(self):
         svg_parser = SVGParser()
         pts = svg_parser.get_pts_from_file(self.svg_file_path)
+        pts = svg_parser.scale_and_center(pts)
         self.polar_pts = svg_parser.convert_to_table_axes(pts)
-        # create_polar_plot(polar_pts)
+        # create_polar_plot(self.polar_pts)
     
-    '''next up:
-    lines have to be descritized
-    control zeroing thing
-    kinda looks like it's backwards'''
     def next_move(self, move_from):
         next_pt = self.polar_pts[self.pt_index]
         self.pt_index += 1
@@ -823,8 +820,8 @@ def set_t_grbl():
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
-# UNO_SERIAL_PORT_NAME = 'COM5' # Emma
-UNO_SERIAL_PORT_NAME = 'COM8' # Jules
+UNO_SERIAL_PORT_NAME = 'COM5' # Emma
+# UNO_SERIAL_PORT_NAME = 'COM8' # Jules
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
@@ -863,9 +860,7 @@ def main():
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
     # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
-    # modes = 
-    modes = [SpiralMode(mode_name="spiral out"), 
-             SVGMode(svg_file_path="..\svg_examples\hex_gosper_d3.svg")]
+    modes = [SVGMode(svg_file_path="..\svg_examples\hex_gosper_d3.svg")]
     mode_index = 0
     mode = modes[mode_index]
 

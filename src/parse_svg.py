@@ -7,7 +7,7 @@ import bezier
 import numpy as np
 import math
 
-SEG_LENGTH = 10
+SEG_LENGTH = 100
 
 @dataclass
 class CartesianPt:
@@ -125,7 +125,6 @@ class SVGParser:
                     pts.append(CartesianPt(x=curve.body[0], y=curve.body[1]))
                 else:
                     pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1])))
-                    print(CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y+curve.body[1]))
             elif curve.marker=='h': # horizontal line
                 pts.extend(self.interpolate_single(prev_pt, CartesianPt(x=prev_pt.x+curve.body[0], y=prev_pt.y)))
             elif curve.marker=='v': # vertical line
@@ -199,6 +198,24 @@ class SVGParser:
             polar_pt = cartesian_to_polar(CartesianPt(x=x, y=y))
             converted_pts.append(polar_pt)
         return converted_pts
+    
+    def scale_and_center(self, pts):
+        min_x, max_x = min(pt.x for pt in pts), max(pt.x for pt in pts)
+        min_y, max_y = min(pt.y for pt in pts), max(pt.y for pt in pts)
+        
+        width, height = max_x - min_x, max_y - min_y
+        max_size = 546 - 2 * 20 # 20 = margin
+        scale = min(max_size / width if width > 0 else 1, max_size / height if height > 0 else 1)
+        
+        center_x, center_y = 273, 273
+        current_center_x, current_center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
+        
+        scaled_pts = [CartesianPt(
+            x=(pt.x - current_center_x) * scale + center_x,
+            y=(pt.y - current_center_y) * scale + center_y
+        ) for pt in pts]
+        
+        return scaled_pts
 
 def plot_pts(pts): 
     pts_decoded = [pt.to_tuple() for pt in pts]
@@ -249,7 +266,9 @@ def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
     return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
-    svg_file = "..\svg_examples\inkscape_hi.svg"
+    svg_file = "..\svg_examples\hex_gosper_d3.svg"
+    # svg_file = "..\svg_examples\inkscape_hi.svg"
+    # svg_file = "..\svg_examples\youre_hot.svg"
     # svg_file = "..\svg_examples\cabin.svg"
     # svg_file = "..\svg_examples\Archimedean_spiral.svg"
     # svg_file = "..\svg_examples\inkscape_spiral.svg"
@@ -258,9 +277,7 @@ if __name__ == "__main__":
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
+    pts = svg_parser.scale_and_center(pts)
     polar_pts = svg_parser.convert_to_table_axes(pts)
-    # for polar_pt in polar_pts:
-    #     if polar_pt.t > 360 or polar_pt.t < 0:
-    #         print(polar_pt)
     # plot_pts(pts)
     create_polar_plot(polar_pts)
