@@ -271,7 +271,7 @@ def create_polar_plot(pts: List[PolarPt]):
 
 def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
     r = math.sqrt(pt.x**2 + pt.y**2)
-    t = 360 - (math.atan2(pt.y, pt.x)*180/math.pi % 360)
+    t = math.atan2(pt.y, pt.x)*180/math.pi % 360
     return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
