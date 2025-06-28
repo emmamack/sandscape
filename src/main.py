@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Union
 from enum import Enum
 
+import debugger_window
+
 from parse_grbl_status import *
 from parse_svg import SVGParser, create_polar_plot
 
@@ -316,31 +318,15 @@ class Mode:
 
     @staticmethod
     def all_modes_in_list():
-        """Returns a list containing an instance of each defined mode."""
+        """Returns a list containing an instance of each working mode."""
         # Order matches the original mode_types_list implicitly
         return [
-            WaypointMode(),
             SpiralMode(),
-            ReactiveOnlyDirectMode(),
-            ReactiveSpiralRippleMode()
+            SpikyBallMode(),
+            SVGMode(),
+            # ReactiveOnlyDirectMode(),
+            # ReactiveSpiralRippleMode()
         ]
-
-@dataclass
-class WaypointMode(Mode):
-    mode_name: str = "waypoint"
-    
-    def next_move(self, move_from):
-        # TODO: know when you have reached a waypoint and don't overshoot
-        if self.waypoints_i < len(self.waypoints_xy):
-            self.done = True
-            return None
-        else:
-            self.done = False
-            xy = polar_to_cartesian_non_object(rt)
-            vector = get_direction(xy, self.waypoints_xy[self.waypoints_i])*self.segment_length
-            new_xy = [xy[0] + vector[0], xy[1] + vector[1]]
-            new_rt = cartesian_to_polar_non_object(new_xy)
-            return new_rt
 
 @dataclass
 class SpiralMode(Mode):
@@ -474,6 +460,11 @@ class SVGMode(Mode):
         self.polar_pts = svg_parser.convert_to_table_axes(pts)
         # create_polar_plot(self.polar_pts)
         self.pt_index = 0
+        
+        # if we are already on the outside, go to the correct theta before starting the svg to avoid spiralling
+        if state.grbl.mpos_r > R_MAX-2:
+            first_t = self.polar_pts[0].t
+            self.polar_pts.insert(0, PolarPt(r=state.grbl.mpos_r, t=first_t))
     
     def next_move(self, move_from):
         next_pt = self.polar_pts[self.pt_index]
@@ -814,9 +805,10 @@ def set_t_grbl():
     #         state.prev_move.t_grbl = 0
     #     else:
     #         state.prev_move.t = state.prev_move.t_grbl
-        
-            
-    
+
+def send_grbl_settings(grbl_settings):
+    for key, value in grbl_settings.items():
+        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.SETTING, msg=f"${key}={value}\n")
 
 # === MAIN CONTROL SCRIPT ======================================================
 
@@ -839,10 +831,49 @@ MARBLE_WAKE_PITCH_MM = 14
 R_MIN = 0
 R_MAX = DISH_RADIUS_MM - MARBLE_DIAMETER_MM/2
 
+# --- GRBL SETTINGS ---
+grbl_settings = {
+    0: 10,  # Step pulse, microseconds
+    1: 25,  # Step idle delay, milliseconds
+    2: 0,  # Step port invert, XYZmask*
+    3: 0,  # Direction port invert, XYZmask*
+    4: 0,  # Step enable invert, (0=Disable, 1=Invert)
+    5: 0,  # Limit pins invert, (0=N-Open. 1=N-Close)
+    6: 0,  # Probe pin invert, (0=N-Open. 1=N-Close)
+    10: 255,  # Status report, '?' status contents
+    11: 0.010,  # Junction deviation, mm
+    12: 0.002,  # Arc tolerance, mm
+    13: 0,  # Report in inches, (0=mm. 1=Inches)**
+    20: 0,  # Soft limits, (0=Disable. 1=Enable, Homing must be enabled)
+    21: 1,  # Hard limits, (0=Disable. 1=Enable)
+    22: 1,  # Homing cycle, (0=Disable. 1=Enable)
+    23: 3,  # Homing direction invert, XYZmask* Sets which corner it homes to.
+    24: 100.000,  # Homing feed, mm/min
+    25: 3000.000,  # Homing seek, mm/min
+    26: 250,  # Homing debounce, milliseconds
+    27: 8.000,  # Homing pull-off, mm
+    30: 1000,  # Max spindle speed, RPM
+    31: 0,  # Min spindle speed, RPM
+    32: 0,  # Laser mode, (0=Off, 1=On)
+    100: 40.000,  # Number of X steps to move 1mm
+    101: 40.000,  # Number of Y steps to move 1mm
+    102: 22.222,  # Number of Z steps to move 1mm (degree)
+    110: 10000.000,  # X Max rate, mm/min
+    111: 10000.000,  # Y Max rate, mm/min
+    112: 10000.000,  # Z Max rate, mm/min
+    120: 50.000,  # X Acceleration, mm/sec^2
+    121: 50.000,  # Y Acceleration, mm/sec^2
+    122: 10.000,  # Z Acceleration, mm/sec^2
+    130: 550.000,  # X Max travel, mm Only for Homing and Soft Limits.
+    131: 345.000,  # Y Max travel, mm Only for Homing and Soft Limits.
+    132: 200.000  # Z Max travel, mm Only for Homing and Soft Limits.
+}
+
 
 state = State()
 
 def main():
+    
     global uno_serial_port, grbl_data_queue
     # state is already global
 
@@ -855,7 +886,7 @@ def main():
     state.flags.connect_to_nano = False
 
     # --- SETUP ---
-    state.flags_to_setup() # allow all types of actionsC
+    state.flags_to_setup() # allow all types of actions
     state.flags.run_control_loop = True
     state.prev_limits_hit.soft_r_min = False
     state.prev_move = Move(r=0,t=0,t_grbl=0)
@@ -871,6 +902,7 @@ def main():
     stop_event = threading.Event()
 
     if state.flags.connect_to_nano:
+        
         print("Establishing serial connection to Arduino Nano...")
         nano_serial_port = serial.Serial(NANO_SERIAL_PORT_NAME, NANO_BAUD_RATE, timeout=1)
         time.sleep(2) # Wait for connection to establish!
@@ -904,6 +936,10 @@ def main():
         print("Checking GRBL status...")
         state.flags.need_status = True
         run_grbl_communicator()
+        
+        if state.flags.send_grbl_settings:
+            print("Sending GRBL settings...")
+            send_grbl_settings(grbl_settings)
 
         if state.flags.grbl_homing_on:
             print("Starting homing...")
