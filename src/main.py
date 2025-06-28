@@ -145,6 +145,7 @@ class Flags:
     grbl_homing_on: bool = True
     connect_to_uno: bool = True
     connect_to_nano: bool = False
+    send_grbl_settings: bool = False
     
     # status flags
     run_control_loop: bool = False
@@ -814,8 +815,8 @@ def send_grbl_settings(grbl_settings):
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
 # UNO_SERIAL_PORT_NAME = 'COM5' # Emma
-# UNO_SERIAL_PORT_NAME = 'COM8' # Jules
-UNO_SERIAL_PORT_NAME = "/dev/ttyACM1" #pi
+UNO_SERIAL_PORT_NAME = 'COM8' # Jules
+# UNO_SERIAL_PORT_NAME = "/dev/ttyACM1" #pi
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
@@ -836,7 +837,7 @@ grbl_settings = {
     0: 10,  # Step pulse, microseconds
     1: 25,  # Step idle delay, milliseconds
     2: 0,  # Step port invert, XYZmask*
-    3: 0,  # Direction port invert, XYZmask*
+    3: 4,  # Direction port invert, XYZmask*
     4: 0,  # Step enable invert, (0=Disable, 1=Invert)
     5: 0,  # Limit pins invert, (0=N-Open. 1=N-Close)
     6: 0,  # Probe pin invert, (0=N-Open. 1=N-Close)
@@ -874,6 +875,10 @@ state = State()
 
 def main():
     
+    dw = debugger_window.DebuggerWindow()
+    dw.startup()
+    dw.show("state",state)
+    
     global uno_serial_port, grbl_data_queue
     # state is already global
 
@@ -881,7 +886,7 @@ def main():
     # --- PROGRAM OPTIONS ---
     state.flags.log_commands = True
     state.flags.log_path = True
-    state.flags.grbl_homing_on = True
+    state.flags.grbl_homing_on = False
     state.flags.connect_to_uno = True
     state.flags.connect_to_nano = False
 
@@ -954,9 +959,10 @@ def main():
             run_grbl_communicator()
     else:
         print("Not connecting to Arduino Uno.")
-
+    dw.show("state",state)
 # --- MAIN CONTROL LOOP --------------------------------------------------------
     while state.flags.run_control_loop:
+        
         state.iterate()
         
         print(f"Loop Start --------------- moves sent: {state.moves_sent}")
@@ -1068,7 +1074,9 @@ def main():
             run_grbl_communicator()
         else:
             print("Not performing grbl tasks because run_control_loop is set to False.")
+        dw.show("state",state)
         time.sleep(0.5)
+        dw.next()
     # --- END OF MAIN CONTROL LOOP -------------------------------------------------
 
     print("Control loop exited. Performing safe stop...")
