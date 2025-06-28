@@ -91,7 +91,7 @@ class GrblStatusOptions(Enum):
 class GrblSendMsg:
     msg_type: Optional[str] = GrblSendMsgType.EMPTY
     msg: Optional[str] = GrblCmd.EMPTY
-    move: Optional[Move] = Move()
+    move: Optional[Move] = field(default_factory=lambda: Move())
     sent: Optional[bool] = False
     response: Optional[str] = ""
     received: Optional[bool] = False
