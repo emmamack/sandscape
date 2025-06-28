@@ -1,0 +1,8 @@
+[Unit]
+Description="Sandtable running service"
+
+[Service]
+ExecStart=/home/sandberrypi/sandscape/src/start-main.sh
+
+[Install]
+WantedBy=multi-user.target
