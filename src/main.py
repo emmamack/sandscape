@@ -163,11 +163,11 @@ class Flags:
 
 @dataclass
 class State:
-    limits_hit: LimitsHit = LimitsHit()
-    control_panel: ControlPanel = ControlPanel()
+    limits_hit: LimitsHit = field(default_factory=lambda: LimitsHit())
+    control_panel: ControlPanel = field(default_factory=lambda: ControlPanel())
     touch_sensors: list = field(default_factory=list)
-    grbl: Grbl = Grbl()
-    flags: Flags = Flags()
+    grbl: Grbl = field(default_factory=lambda: Grbl())
+    flags: Flags = field(default_factory=lambda: Flags())
     next_move: Move = Move(r=0,t=0)
 
     prev_limits_hit: LimitsHit = LimitsHit()
