@@ -861,8 +861,10 @@ def main():
     state.prev_move = Move(r=0,t=0,t_grbl=0)
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
-    modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
+    # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     # modes = [SVGMode(svg_file_path="..\svg_examples\youre_hot.svg")]
+    modes = [SpiralMode(mode_name="spiral out"), 
+             SVGMode(svg_file_path="..\svg_examples\hex_gosper_d3.svg")]
     mode_index = 0
     mode = modes[mode_index]
 
