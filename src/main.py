@@ -30,6 +30,13 @@ class Move:
             return True
         else:
             return False
+        
+    def __repr__(self):
+        r_str = "None" if self.r == None else f"{self.r:.3f}"
+        t_str = "None" if self.t == None else f"{self.t:.3f}"
+        s_str = "None" if self.s == None else f"{self.s:.3f}"
+        t_str = "None" if self.t_grbl == None else f"{self.t:.3f}"
+        return f"Move(r={r_str}, t={t_str}, s={s_str}, t_grbl={t_str}, received={self.received})"
 
 @dataclass
 class CartesianPt:
@@ -149,6 +156,7 @@ class Flags:
     
     # status flags
     run_control_loop: bool = False
+    in_setup_phase: bool = False
     in_sense_phase: bool = False
     in_think_phase: bool = False
     in_act_phase: bool = False
@@ -671,6 +679,7 @@ def check_move(move):
 
 def next_move_to_msg():
     """Check move validity based on limits and grbl status, then make next msg next_move."""
+    set_t_grbl()
     # If r limit has been hit, next move needs to be in oppsite direction
     if state.next_move != None and not state.next_move.is_empty():
         if check_move(state.next_move):
@@ -681,9 +690,11 @@ def next_move_to_msg():
 
 def homing_next_msg():
     if state.limits_hit.hard_r_min:
-        state.next_move = Move(r=state.grbl.mpos_r+30, t=state.grbl.mpos_t)
+        state.next_move = Move(r=state.grbl.mpos_r+30, t=state.grbl.mpos_t, s=3000)
+        set_t_grbl()
     elif state.limits_hit.hard_r_max:
-        state.next_move = Move(r=state.grbl.mpos_r-30, t=state.grbl.mpos_t)
+        state.next_move = Move(r=state.grbl.mpos_r-30, t=state.grbl.mpos_t, s=3000)
+        set_t_grbl()
     else:
         state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.HOME)
         return
@@ -731,6 +742,8 @@ def run_grbl_communicator(timeout=.5):
     global grbl_data_queue, uno_serial_port
     # assume all previous msgs are handled
     print("Running GRBL communicator...")
+    dw.show("state", state)
+    dw.next()
     while True:
         print(state)
         # if state.flags.expecting_extra_msg:
@@ -741,6 +754,8 @@ def run_grbl_communicator(timeout=.5):
             grbl_data_queue.task_done()
             state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
             handle_grbl_response()
+            dw.show("state", state)
+            dw.next()
         # generate state.next_grbl_msg
         gen_msg_from_state()
         # if there is still a message to send
@@ -767,6 +782,8 @@ def run_grbl_communicator(timeout=.5):
             gen_msg_from_state() # generates empty msg if no further com needed
         if (state.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY):
             break
+    dw.show("state", state)
+    dw.next()
 
 def update_sensor_data(sensor_data_queue):
     if not sensor_data_queue.empty():
@@ -795,7 +812,7 @@ def set_t_grbl():
             delta += 360
         state.next_move.t_grbl = state.prev_move.t_grbl + delta
         return True
-    if state.next_move.t == None:
+    elif state.next_move.t == None:
         return False
     # if  state.prev_move.t == None:
     #     if state.prev_move.t_grbl == None:
@@ -810,6 +827,7 @@ def set_t_grbl():
 def send_grbl_settings(grbl_settings):
     for key, value in grbl_settings.items():
         state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.SETTING, msg=f"${key}={value}\n")
+        
 
 # === MAIN CONTROL SCRIPT ======================================================
 
@@ -872,12 +890,23 @@ grbl_settings = {
 
 
 state = State()
+mode = Mode()
+
+dw = debugger_window.DebuggerWindow()
 
 def main():
     
-    dw = debugger_window.DebuggerWindow()
+    loop_count = 0
+    
+    # Start debug window
     dw.startup()
-    dw.show("state",state)
+ 
+    # Set up debug window order, state last
+    dw.show("msg", "")
+    dw.show("loop_count",loop_count)
+    dw.show("mode", "")
+    dw.show("state","")
+    
     
     global uno_serial_port, grbl_data_queue
     # state is already global
@@ -886,7 +915,7 @@ def main():
     # --- PROGRAM OPTIONS ---
     state.flags.log_commands = True
     state.flags.log_path = True
-    state.flags.grbl_homing_on = False
+    state.flags.grbl_homing_on = True
     state.flags.connect_to_uno = True
     state.flags.connect_to_nano = False
 
@@ -959,13 +988,18 @@ def main():
             run_grbl_communicator()
     else:
         print("Not connecting to Arduino Uno.")
-    dw.show("state",state)
+    
+        dw.show("loop_count",loop_count)
+        dw.show("mode", mode)
+        dw.show("state", state)
+        dw.next()
+    
 # --- MAIN CONTROL LOOP --------------------------------------------------------
     while state.flags.run_control_loop:
-        
+        loop_count += 1
         state.iterate()
         
-        print(f"Loop Start --------------- moves sent: {state.moves_sent}")
+        print(f"Loop Start --------------- moves sent: {state.moves_sent} | loop_count: {loop_count}")
         print(f"Current mode: {mode.mode_name}")
         print(mode)
 
@@ -1074,7 +1108,11 @@ def main():
             run_grbl_communicator()
         else:
             print("Not performing grbl tasks because run_control_loop is set to False.")
-        dw.show("state",state)
+        
+        dw.show("loop_count",loop_count)
+        dw.show("mode", mode)
+        dw.show("state", state)
+
         time.sleep(0.5)
         dw.next()
     # --- END OF MAIN CONTROL LOOP -------------------------------------------------

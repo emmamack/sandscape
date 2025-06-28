@@ -142,7 +142,6 @@ class DebuggerWindow:
         """Schedules a debounced call to recalculate widget heights."""
         if self._recalc_job:
             self.root.after_cancel(self._recalc_job)
-        # A short delay is good for debouncing resize events
         self._recalc_job = self.root.after(50, self._recalculate_all_heights)
 
     def _on_closing(self):
@@ -163,8 +162,9 @@ class DebuggerWindow:
         for _, value_text in self._display_widgets.values():
             try:
                 value_text.configure(state=tk.NORMAL)
-                display_lines = value_text.count('1.0', 'end', 'displaylines')
-                print("display_lines=",display_lines)
+                # FIX: The count method can return a tuple. Extract the integer.
+                count_result = value_text.count('1.0', 'end', 'displaylines')
+                display_lines = count_result[0] if isinstance(count_result, tuple) else count_result
                 value_text.configure(height=max(1, display_lines))
                 value_text.configure(state=tk.DISABLED)
             except tk.TclError:
@@ -192,7 +192,6 @@ class DebuggerWindow:
                     return
             
             if updates_made and self._view_mode == 'live':
-                # Don't use the delayed scheduler for live updates, do it directly.
                 self._recalculate_all_heights()
 
         finally:
@@ -232,7 +231,6 @@ class DebuggerWindow:
             self._create_widget_pair(id_str)
             self._update_widget(id_str)
         
-        # After a full redraw, always recalculate heights.
         self._recalculate_all_heights()
 
     def _find_last_value(self, id_str, start_frame_index):
@@ -421,4 +419,3 @@ if __name__ == '__main__':
     finally:
         dw.close()
         print("Example loop finished.")
-
