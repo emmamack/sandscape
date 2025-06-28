@@ -275,9 +275,9 @@ def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
     return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
-    # svg_file = "..\svg_examples\hex_gosper_d3.svg"
+    # svg_file = "hex_gosper_d3.svg"
     # svg_file = "..\svg_examples\inkscape_hi.svg"
-    svg_file = "..\svg_examples\youre_hot.svg"
+    svg_file = "youre_hot.svg"
     # svg_file = "..\svg_examples\cabin.svg"
     # svg_file = "..\svg_examples\Archimedean_spiral.svg"
     # svg_file = "..\svg_examples\inkscape_spiral.svg"
