@@ -176,7 +176,7 @@ class State:
     prev_grbl: Grbl = field(default_factory=lambda: Grbl())
     prev_flags: Flags = field(default_factory=lambda: Flags())
     prev_move: Move = field(default_factory=lambda: Move(r=0,t=0))
-
+    prev_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
     desired_linspeed: int = 3000 #mm/min
     moves_sent: int = 0
 
@@ -286,7 +286,7 @@ class Mode:
     base_linspeed: int = 9000 #mm/min
     r_dir: int = 1
     theta_dir: int = 1
-    pitch: int = 14 
+    pitch: int = 13 
     waypoints_xy: list = field(default_factory=list)
     waypoints_rt: list = field(default_factory=list)
     waypoints_i: int = 0
@@ -476,12 +476,11 @@ class SVGMode(Mode):
             self.polar_pts.insert(0, PolarPt(r=state.grbl.mpos_r, t=first_t))
     
     def next_move(self, move_from):
-        next_pt = self.polar_pts[self.pt_index]
-        self.pt_index += 1
         if self.pt_index >= len(self.polar_pts):
             self.done = True
             return Move()
-        
+        next_pt = self.polar_pts[self.pt_index]
+        self.pt_index += 1
         return Move(r=next_pt.r, t=next_pt.t, s=2000)
 
 
@@ -605,6 +604,7 @@ def handle_grbl_response():
             isgood = True
             if state.next_grbl_msg.msg == GrblCmd.HOME:
                 state.flags.need_homing = False
+                state.flags.run_control_loop = True
         # state.flags.expecting_extra_msg = False
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM:
         state.grbl.status = GrblStatusOptions.ALARM
@@ -634,11 +634,11 @@ def handle_grbl_response():
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_OTHER:
         state.flags.need_status = True
     else:
-        print(f"Unrecognized GRBL response: {state.last_grbl_resp.msg}")
+        print(f"Unrecognized GRBL response: '{state.last_grbl_resp.msg}'")
         state.flags.need_reset = True
         state.flags.need_unlock = True
         state.flags.need_status = True
-        state.flags.run_control_loop = False
+        # state.flags.run_control_loop = False
     if isgood:
         state.next_grbl_msg.received = True
         state.next_grbl_msg.response = state.last_grbl_resp.msg
@@ -704,6 +704,7 @@ def homing_next_msg():
 def gen_msg_from_state():
     """Uses state.flags and internal logic to determine which messages to send to GRBL. 
     Sets state.next_grbl_msg"""
+
     if state.flags.in_sense_phase:
         if (state.flags.need_reset 
             and state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM):
@@ -715,6 +716,8 @@ def gen_msg_from_state():
     if state.flags.in_act_phase:
         if state.flags.need_reset:
             state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET)
+        elif state.flags.need_status:
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS)
         elif state.flags.need_unlock:
             state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.UNLOCK)
         elif state.flags.need_homing:
@@ -737,13 +740,11 @@ def grbl_write_next_msg(serial_port):
         print(f"{time.time():.5f} | writing to grbl: {x}")
         serial_port.write(x)
 
-def run_grbl_communicator(timeout=.5):
+def run_grbl_communicator(timeout=1):
     """Sends messages to grbl and manages state based on response. Should be the only function that main control loop runs to communicate with grbl."""
     global grbl_data_queue, uno_serial_port
     # assume all previous msgs are handled
     print("Running GRBL communicator...")
-    dw.show("state", state)
-    dw.next()
     while True:
         print(state)
         # if state.flags.expecting_extra_msg:
@@ -754,8 +755,6 @@ def run_grbl_communicator(timeout=.5):
             grbl_data_queue.task_done()
             state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
             handle_grbl_response()
-            dw.show("state", state)
-            dw.next()
         # generate state.next_grbl_msg
         gen_msg_from_state()
         # if there is still a message to send
@@ -769,6 +768,7 @@ def run_grbl_communicator(timeout=.5):
             end_time = start_time + timeout
             while True:
                 if time.time() > end_time:
+                    print("Grbl communicator timed out.")
                     state.last_grbl_resp = GrblRespMsg()
                     break
                 if grbl_data_queue.empty():
@@ -779,11 +779,10 @@ def run_grbl_communicator(timeout=.5):
                     state.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
                     break
             handle_grbl_response()
+            state.prev_grbl_msg = state.next_grbl_msg
             gen_msg_from_state() # generates empty msg if no further com needed
         if (state.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY):
             break
-    dw.show("state", state)
-    dw.next()
 
 def update_sensor_data(sensor_data_queue):
     if not sensor_data_queue.empty():
@@ -899,7 +898,7 @@ def main():
     loop_count = 0
     
     # Start debug window
-    dw.startup()
+    # dw.startup()
  
     # Set up debug window order, state last
     dw.show("msg", "")
@@ -1062,7 +1061,7 @@ def main():
             # RxBuffer is 0 when full, 128 when empty
             state.flags.buffer_space = True
         
-        # If the mode is done, cyle to next modeC
+        # If the mode is done, cyle to next mode
         if (mode.is_done() 
             and state.grbl.status == GrblStatusOptions.IDLE.value 
             and state.grbl.planner_buffer == 15):
@@ -1071,6 +1070,7 @@ def main():
             mode_index = (mode_index + 1) % len(modes)
             mode = modes[mode_index]
             mode.done = False
+            mode.startup()
             state.flags.input_change = True
             print(f"Next mode: {mode.mode_name}")
             print(mode)
@@ -1113,7 +1113,7 @@ def main():
         dw.show("mode", mode)
         dw.show("state", state)
 
-        time.sleep(0.5)
+        time.sleep(0.1)
         dw.next()
     # --- END OF MAIN CONTROL LOOP -------------------------------------------------
 
