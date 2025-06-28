@@ -7,7 +7,7 @@ import bezier
 import numpy as np
 import math
 
-SEG_LENGTH = 100
+SEG_LENGTH = 10
 
 @dataclass
 class CartesianPt:
@@ -276,17 +276,18 @@ def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
 
 if __name__ == "__main__":
     # svg_file = "hex_gosper_d3.svg"
+    # svg_file = "hex_gosper_d4.svg"
     # svg_file = "..\svg_examples\inkscape_hi.svg"
-    svg_file = "youre_hot.svg"
+    # svg_file = "youre_hot.svg"
     # svg_file = "..\svg_examples\cabin.svg"
     # svg_file = "..\svg_examples\Archimedean_spiral.svg"
     # svg_file = "..\svg_examples\inkscape_spiral.svg"
-    # svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
+    svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
     # svg_file = "..\svg_examples\chef-man-cap-svgrepo-com.svg"
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
-    # pts = svg_parser.scale_and_center(pts)
-    # polar_pts = svg_parser.convert_to_table_axes(pts)
+    pts = svg_parser.scale_and_center(pts)
+    polar_pts = svg_parser.convert_to_table_axes(pts)
     plot_pts(pts)
-    # create_polar_plot(polar_pts)
+    create_polar_plot(polar_pts)

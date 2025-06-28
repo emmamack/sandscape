@@ -338,6 +338,15 @@ class Mode:
         ]
 
 @dataclass
+class ReHome(Mode):
+    mode_name: str = "rehome"
+    def next_move(self):
+        state.flags.need_homing = True
+        self.done = True
+        return Move()
+
+
+@dataclass
 class SpiralMode(Mode):
     """Mode for the marble to draw a spiral outwards from its current location."""
     mode_name: str = "spiral"
@@ -928,7 +937,11 @@ def main():
     # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
     # modes = [SVGMode(svg_file_path="youre_hot.svg")]
     modes = [SpiralMode(mode_name="spiral out"), 
-             SVGMode(svg_file_path="hex_gosper_d3.svg")]
+            #  SVGMode(svg_file_path="hex_gosper_d3.svg"),
+             SVGMode(svg_file_path="hex_gosper_d4.svg"),
+             SpiralMode(mode_name="spiral in", r_dir=-1),
+            #  SpikyBallMode(),
+             ]
     mode_index = 0
     mode = modes[mode_index]
 
@@ -1066,14 +1079,14 @@ def main():
             and state.grbl.status == GrblStatusOptions.IDLE.value 
             and state.grbl.planner_buffer == 15):
             print(f"Mode {mode.mode_name} is done.")
-            print(mode)
+            # print(mode)
             mode_index = (mode_index + 1) % len(modes)
             mode = modes[mode_index]
             mode.done = False
             mode.startup()
             state.flags.input_change = True
             print(f"Next mode: {mode.mode_name}")
-            print(mode)
+            # print(mode)
         
         # If an input has changed, plan to send reset 
         # and calc next move from current position
