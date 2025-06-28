@@ -168,20 +168,20 @@ class State:
     touch_sensors: list = field(default_factory=list)
     grbl: Grbl = field(default_factory=lambda: Grbl())
     flags: Flags = field(default_factory=lambda: Flags())
-    next_move: Move = Move(r=0,t=0)
+    next_move: Move = field(default_factory=lambda: Move(r=0,t=0))
 
-    prev_limits_hit: LimitsHit = LimitsHit()
-    prev_control_panel: ControlPanel = ControlPanel()
+    prev_limits_hit: LimitsHit = field(default_factory=lambda: LimitsHit())
+    prev_control_panel: ControlPanel = field(default_factory=lambda: ControlPanel())
     prev_touch_sensors: list = field(default_factory=list)
-    prev_grbl: Grbl = Grbl()
-    prev_flags: Flags = Flags()
-    prev_move: Move = Move(r=0,t=0)
+    prev_grbl: Grbl = field(default_factory=lambda: Grbl())
+    prev_flags: Flags = field(default_factory=lambda: Flags())
+    prev_move: Move = field(default_factory=lambda: Move(r=0,t=0))
 
     desired_linspeed: int = 3000 #mm/min
     moves_sent: int = 0
 
-    last_grbl_resp: GrblRespMsg = GrblRespMsg()
-    next_grbl_msg: GrblSendMsg = GrblSendMsg()
+    last_grbl_resp: GrblRespMsg = field(default_factory=lambda: GrblRespMsg())
+    next_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
 
     theta_correction: float = 0 # TODO
     path_history: list = field(default_factory=list)
