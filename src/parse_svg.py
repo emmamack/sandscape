@@ -63,7 +63,6 @@ class SVGParser:
         curves = []
 
         for curve_block in split_at_letter:
-            print(curve_block)
             marker = curve_block[0]
 
             if marker == 'z': #discard end markers
@@ -87,7 +86,6 @@ class SVGParser:
             [prev_pt.x, prev_pt.x+node_set[0], prev_pt.x+node_set[2], prev_pt.x+node_set[4]],
             [prev_pt.y, prev_pt.y+node_set[1], prev_pt.y+node_set[3], prev_pt.y+node_set[5]],
         ])
-        # print(nodes)
         bezier_curve_obj = bezier.Curve(nodes, degree=3)
 
         num_pts_in_curve = bezier_curve_obj.length / SEG_LENGTH
@@ -195,16 +193,15 @@ class SVGParser:
         return all_pts
     
     def convert_to_table_axes(self, pts):
-        '''3 things that need to happen:
+        '''
         - flip y axis
-        - move origin to middle
         - convert to polar
         '''
         converted_pts = []
         for pt in pts:
-            x = pt.x - 273
-            y = 273 - pt.y
-            polar_pt = cartesian_to_polar(CartesianPt(x=x, y=y))
+            x = pt.x
+            y = -1*pt.y
+            polar_pt = self.cartesian_to_polar(CartesianPt(x=x, y=y))
             converted_pts.append(polar_pt)
         return converted_pts
     
@@ -213,7 +210,7 @@ class SVGParser:
         min_y, max_y = min(pt.y for pt in pts), max(pt.y for pt in pts)
         
         width, height = max_x - min_x, max_y - min_y
-        max_size = 546 - 2 * 20 # 20 = margin
+        max_size = 546 - 2 * 5 # 5 = margin
         scale = min(max_size / width if width > 0 else 1, max_size / height if height > 0 else 1)
         
         center_x, center_y = 273, 273
@@ -225,8 +222,37 @@ class SVGParser:
         ) for pt in pts]
         
         return scaled_pts
+    
+    def scale(self, pts):
+        desired_max_r = 273 - 5
+        max_r = max(pt.r for pt in pts)
 
-def plot_pts(pts): 
+        scaled_pts = [PolarPt(
+            r=pt.r * desired_max_r / max_r,
+            t=pt.t
+        ) for pt in pts]
+
+        return scaled_pts
+
+    def center(self, pts):
+        min_x, max_x = min(pt.x for pt in pts), max(pt.x for pt in pts)
+        min_y, max_y = min(pt.y for pt in pts), max(pt.y for pt in pts)
+
+        center_x, center_y = (min_x + max_x) / 2, (min_y + max_y) / 2
+
+        centered_pts = [CartesianPt(
+            x=pt.x - center_x,
+            y=pt.y - center_y
+        ) for pt in pts]
+
+        return centered_pts
+    
+    def cartesian_to_polar(self, pt: CartesianPt) -> PolarPt:
+        r = math.sqrt(pt.x**2 + pt.y**2)
+        t = math.atan2(pt.y, pt.x)*180/math.pi % 360
+        return PolarPt(float(r), float(t))
+
+def create_cartesian_plot(pts): 
     pts_decoded = [pt.to_tuple() for pt in pts]
     # print(pts_decoded)
     x_coords = [pt[0] for pt in pts_decoded]
@@ -269,25 +295,15 @@ def create_polar_plot(pts: List[PolarPt]):
     ax.set_title('Path in Polar Coordinates (Rainbow)')
     plt.show()
 
-def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
-    r = math.sqrt(pt.x**2 + pt.y**2)
-    t = math.atan2(pt.y, pt.x)*180/math.pi % 360
-    return PolarPt(float(r), float(t))
 
 if __name__ == "__main__":
-    # svg_file = "hex_gosper_d3.svg"
-    # svg_file = "hex_gosper_d4.svg"
-    # svg_file = "..\svg_examples\inkscape_hi.svg"
-    # svg_file = "youre_hot.svg"
-    # svg_file = "..\svg_examples\cabin.svg"
-    # svg_file = "..\svg_examples\Archimedean_spiral.svg"
-    # svg_file = "..\svg_examples\inkscape_spiral.svg"
-    svg_file = "..\svg_examples\eye-drops-svgrepo-com.svg"
-    # svg_file = "..\svg_examples\chef-man-cap-svgrepo-com.svg"
+    svg_file = "hilbert_d6.svg"
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
-    pts = svg_parser.scale_and_center(pts)
+    pts = svg_parser.center(pts)
     polar_pts = svg_parser.convert_to_table_axes(pts)
-    plot_pts(pts)
+    polar_pts = svg_parser.scale(polar_pts)
+
+    create_cartesian_plot(pts)
     create_polar_plot(polar_pts)

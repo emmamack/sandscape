@@ -13,7 +13,7 @@ from enum import Enum
 import debugger_window
 
 from parse_grbl_status import *
-from parse_svg import SVGParser, create_polar_plot
+from parse_svg import SVGParser, create_polar_plot, create_cartesian_plot
 
 EXPECTED_SENSOR_BYTESTRING_LENGTH = 17
 
@@ -468,15 +468,16 @@ class SpikyBallMode(Mode):
 class SVGMode(Mode):
     polar_pts: List[PolarPt] = field(default_factory=list)
     mode_name: str = "svg"
-    svg_file_path: str = "youre_hot.svg"
+    svg_file_path: str = "hilbert_d6.svg"
     pt_index: int = 0
 
     def startup(self):
         svg_parser = SVGParser()
         pts = svg_parser.get_pts_from_file(self.svg_file_path)
-        pts = svg_parser.scale_and_center(pts)
-        self.polar_pts = svg_parser.convert_to_table_axes(pts)
-        # create_polar_plot(self.polar_pts)
+        pts = svg_parser.center(pts)
+        polar_pts = svg_parser.convert_to_table_axes(pts)
+        polar_pts = svg_parser.scale(polar_pts)
+        # create_polar_plot(polar_pts)
         self.pt_index = 0
         
         # if we are already on the outside, go to the correct theta before starting the svg to avoid spiralling
@@ -514,12 +515,6 @@ def polar_to_cartesian_non_object(r, t):
     x = r * math.cos(t)
     y = r * math.sin(t)
     return float(x), float(y)
-
-def cartesian_to_polar(pt: CartesianPt) -> PolarPt:
-    r = math.sqrt(pt.x**2 + pt.y**2)
-    t = math.atan2(pt.y, pt.x)*180/math.pi
-    return PolarPt(float(r), float(t))
-
 
 def read_from_port(serial_port, stop_event, data_queue):
     """
@@ -934,14 +929,13 @@ def main():
     state.prev_move = Move(r=0,t=0,t_grbl=0)
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
-    # modes = [SpiralMode(mode_name="spiral out"), SpiralMode(mode_name="spiral in", r_dir=-1)]
-    # modes = [SVGMode(svg_file_path="youre_hot.svg")]
-    modes = [SpiralMode(mode_name="spiral out"), 
-            #  SVGMode(svg_file_path="hex_gosper_d3.svg"),
-             SVGMode(svg_file_path="hex_gosper_d4.svg"),
-             SpiralMode(mode_name="spiral in", r_dir=-1),
-            #  SpikyBallMode(),
-             ]
+    modes = [
+        SpiralMode(mode_name="spiral out"), 
+        # SVGMode(svg_file_path="hex_gosper_d3.svg"),
+        SVGMode(svg_file_path="hilbert_d6.svg"),
+        SpiralMode(mode_name="spiral in", r_dir=-1),
+        #  SpikyBallMode(),
+    ]
     mode_index = 0
     mode = modes[mode_index]
 
