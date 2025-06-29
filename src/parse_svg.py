@@ -297,7 +297,7 @@ def create_polar_plot(pts: List[PolarPt]):
 
 
 if __name__ == "__main__":
-    svg_file = "hilbert_d6.svg"
+    svg_file = "hilbert_d5.svg"
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
@@ -305,5 +305,5 @@ if __name__ == "__main__":
     polar_pts = svg_parser.convert_to_table_axes(pts)
     polar_pts = svg_parser.scale(polar_pts)
 
-    create_cartesian_plot(pts)
+    # create_cartesian_plot(pts)
     create_polar_plot(polar_pts)
