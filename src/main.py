@@ -930,9 +930,9 @@ def main():
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
     modes = [
-        # SpiralMode(mode_name="spiral out"), 
+        SpiralMode(mode_name="spiral out"), 
         # SVGMode(svg_file_path="hex_gosper_d3.svg"),
-        SVGMode(svg_file_path="hilbert_d5.svg"),
+        # SVGMode(svg_file_path="hilbert_d5.svg"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
         #  SpikyBallMode(),
     ]
