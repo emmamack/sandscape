@@ -7,7 +7,7 @@ import bezier
 import numpy as np
 import math
 
-SEG_LENGTH = 10
+SEG_LENGTH = 3
 
 @dataclass
 class CartesianPt:
