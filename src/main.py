@@ -932,7 +932,7 @@ def main():
     modes = [
         SpiralMode(mode_name="spiral out"), 
         # SVGMode(svg_file_path="hex_gosper_d3.svg"),
-        SVGMode(svg_file_path="hilbert_d6.svg"),
+        SVGMode(svg_file_path="hilbert_d5.svg"),
         # SpiralMode(mode_name="spiral in", r_dir=-1),
         #  SpikyBallMode(),
     ]
