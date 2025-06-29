@@ -475,9 +475,9 @@ class SVGMode(Mode):
         svg_parser = SVGParser()
         pts = svg_parser.get_pts_from_file(self.svg_file_path)
         pts = svg_parser.center(pts)
-        polar_pts = svg_parser.convert_to_table_axes(pts)
-        polar_pts = svg_parser.scale(polar_pts)
-        # create_polar_plot(polar_pts)
+        self.polar_pts = svg_parser.convert_to_table_axes(pts)
+        self.polar_pts = svg_parser.scale(self.polar_pts)
+        # create_polar_plot(self.polar_pts)
         self.pt_index = 0
         
         # if we are already on the outside, go to the correct theta before starting the svg to avoid spiralling
@@ -930,7 +930,7 @@ def main():
     state.next_move = Move(r=0,t=0,t_grbl=0)
     
     modes = [
-        SpiralMode(mode_name="spiral out"), 
+        # SpiralMode(mode_name="spiral out"), 
         # SVGMode(svg_file_path="hex_gosper_d3.svg"),
         SVGMode(svg_file_path="hilbert_d6.svg"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
