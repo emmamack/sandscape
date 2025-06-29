@@ -921,8 +921,8 @@ def main():
 
     signal.signal(signal.SIGINT, sig_handler)
     # --- PROGRAM OPTIONS ---
-    state.flags.log_commands = True
-    state.flags.log_path = True
+    state.flags.log_commands = False
+    state.flags.log_path = False
     state.flags.grbl_homing_on = True
     state.flags.connect_to_uno = True
     state.flags.connect_to_nano = False
