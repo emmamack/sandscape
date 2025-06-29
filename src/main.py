@@ -931,12 +931,16 @@ def main():
     
     modes = [
         SpiralMode(mode_name="spiral out"), 
+        SVGMode(svg_file_path="pentagon_fractal.svg"),
+        SpiralMode(mode_name="spiral in", r_dir=-1),
+        SpiralMode(mode_name="spiral out"), 
         SVGMode(svg_file_path="hex_gosper_d4.svg"),
+        SpiralMode(mode_name="spiral in", r_dir=-1),
+        SVGMode(svg_file_path="dither_wormhole.svg"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
         SpiralMode(mode_name="spiral out"), 
         SVGMode(svg_file_path="hilbert_d5.svg"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
-        #  SpikyBallMode(),
     ]
     mode_index = 0
     mode = modes[mode_index]

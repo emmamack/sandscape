@@ -68,7 +68,7 @@ class SVGParser:
             if marker == 'z': #discard end markers
                 continue
             elif marker not in self.curve_types_to_expected_length:
-                raise RuntimeError("Encountered unsupported curve type in SVG")
+                raise RuntimeError(f"Encountered unsupported curve type in SVG: {marker}")
 
             body = [float(x) for x in re.findall(r'-?\d+\.?\d*', curve_block[1:])]
 
@@ -297,7 +297,7 @@ def create_polar_plot(pts: List[PolarPt]):
 
 
 if __name__ == "__main__":
-    svg_file = "hilbert_d5.svg"
+    svg_file = "dither_cells_2.svg"
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
