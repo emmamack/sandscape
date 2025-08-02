@@ -89,12 +89,12 @@ class GrblStatusOptions(Enum):
 
 @dataclass
 class GrblSendMsg:
-    msg_type: Optional[str] = GrblSendMsgType.EMPTY
-    msg: Optional[str] = GrblCmd.EMPTY
-    move: Optional[Move] = field(default_factory=lambda: Move())
-    sent: Optional[bool] = False
-    response: Optional[str] = ""
-    received: Optional[bool] = False
+    msg_type: GrblSendMsgType = GrblSendMsgType.EMPTY
+    msg: bytes = GrblCmd.EMPTY.value
+    move: Move = field(default_factory=lambda: Move())
+    sent: bool = False
+    response: str = ""
+    received: bool = False
     def __repr__(self):
         if type(self.msg) == GrblCmd:
             msg_str = self.msg.name
@@ -103,9 +103,9 @@ class GrblSendMsg:
         return f"GrblSendMsg(msg_type={self.msg_type.name}, msg={msg_str}, move={self.move}, sent={self.sent}, response={self.response}, received={self.received})"
     
 class GrblRespMsg:
-    msg_type: Optional[str] = GrblRespType.NONE
-    msg: Optional[str] = ""
-    handled: Optional[bool] = False
+    msg_type: GrblRespType = GrblRespType.NONE
+    msg: str = ""
+    handled: bool = False
     def __repr__(self):
         return f"GrblRespMsg(msg_type={self.msg_type.name}, msg={self.msg}, handled={self.handled})"
 
@@ -145,6 +145,7 @@ class Flags:
     need_homing: bool = False
     need_calc_next_move: bool = False
     need_send_next_move: bool = False
+    need_send_setting: bool = False
     
     # user set program settings flags
     log_commands: bool = True
@@ -248,7 +249,7 @@ class State:
         self.flags.in_act_phase = False
         
     def flags_to_act_phase(self):
-        self.flags.in_sense = False
+        self.flags.in_sense_phase = False
         self.flags.in_think_phase = False
         self.flags.in_act_phase = True
 
@@ -331,7 +332,7 @@ class Mode:
         # Order matches the original mode_types_list implicitly
         return [
             SpiralMode(),
-            SpikyBallMode(),
+            # SpikyBallMode(),
             SVGMode(),
             # ReactiveOnlyDirectMode(),
             # ReactiveSpiralRippleMode()
@@ -340,7 +341,7 @@ class Mode:
 @dataclass
 class ReHome(Mode):
     mode_name: str = "rehome"
-    def next_move(self):
+    def next_move(self, move_from):
         state.flags.need_homing = True
         self.done = True
         return Move()
@@ -441,28 +442,28 @@ class ReactiveSpiralRippleMode(Mode):
     """
     mode_name: str = "reactive spiral ripple"
 
-@dataclass
-class SpikyBallMode(Mode):
-    mode_name: str = "spiky ball"
-    width_step: int = 4
+# @dataclass
+# class SpikyBallMode(Mode):
+#     mode_name: str = "spiky ball"
+#     width_step: int = 4
 
-    def next_move(self, move_from):
-        # TODO: update when main loop handling of crossing 360 is updated
-        # this is all janky as fuck but doesn't require more previous steps and is continuous
-        if move_from.r == 0 and move_from.t % (self.width_step*2) == 0:
-            r_next = R_MAX 
-            t_next = move_from.t
-        if move_from.r != 0 and move_from.t % (self.width_step*2) == 0:
-            r_next = R_MAX 
-            t_next = move_from.t + self.width_step
-        if move_from.r != 0 and move_from.t % (self.width_step*2) != 0:
-            r_next = 0
-            t_next = move_from.t
-        if move_from.r == 0 and move_from.t % (self.width_step*2) != 0:
-            r_next = 0
-            t_next = move_from.t + self.width_step
+#     def next_move(self, move_from):
+#         # TODO: update when main loop handling of crossing 360 is updated
+#         # this is all janky as fuck but doesn't require more previous steps and is continuous
+#         if move_from.r == 0 and move_from.t % (self.width_step*2) == 0:
+#             r_next = R_MAX 
+#             t_next = move_from.t
+#         if move_from.r != 0 and move_from.t % (self.width_step*2) == 0:
+#             r_next = R_MAX 
+#             t_next = move_from.t + self.width_step
+#         if move_from.r != 0 and move_from.t % (self.width_step*2) != 0:
+#             r_next = 0
+#             t_next = move_from.t
+#         if move_from.r == 0 and move_from.t % (self.width_step*2) != 0:
+#             r_next = 0
+#             t_next = move_from.t + self.width_step
         
-        return Move(r=r_next, t=t_next, s=4000)
+#         return Move(r=r_next, t=t_next, s=4000)
 
 @dataclass
 class SVGMode(Mode):
@@ -611,7 +612,7 @@ def handle_grbl_response():
                 state.flags.run_control_loop = True
         # state.flags.expecting_extra_msg = False
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM:
-        state.grbl.status = GrblStatusOptions.ALARM
+        state.grbl.status = GrblStatusOptions.ALARM.value
         state.flags.need_reset = True
         state.flags.need_unlock = True
         state.flags.need_status = True
@@ -655,7 +656,7 @@ def handle_grbl_response():
             state.flags.need_reset = False
 
 def format_move(move):
-    return f"G1 X{move.r:.2f} Z{move.t_grbl:.2f} F{move.s:.2f}\n"
+    return bytes(f"G1 X{move.r:.2f} Z{move.t_grbl:.2f} F{move.s:.2f}\n",  'utf-8')
 
 def check_move(move):
     """Check move validity based on limits and grbl status."""
@@ -700,7 +701,7 @@ def homing_next_msg():
         state.next_move = Move(r=state.grbl.mpos_r-30, t=state.grbl.mpos_t, s=3000)
         set_t_grbl()
     else:
-        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.HOME)
+        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.HOME.value)
         return
     next_move_to_msg()
 
@@ -712,20 +713,23 @@ def gen_msg_from_state():
     if state.flags.in_sense_phase:
         if (state.flags.need_reset 
             and state.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM):
-            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET)
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET.value)
         elif state.flags.need_status:
-            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS)
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS.value)
         else:
             state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.EMPTY)
     if state.flags.in_act_phase:
         if state.flags.need_reset:
-            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET)
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET.value)
         elif state.flags.need_status:
-            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS)
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS.value)
         elif state.flags.need_unlock:
-            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.UNLOCK)
+            state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.UNLOCK.value)
         elif state.flags.need_homing:
             homing_next_msg()
+        elif state.flags.need_send_setting:
+            if state.next_grbl_msg.msg_type != GrblSendMsgType.SETTING:
+                print(f"state.flags.need_send_setting={state.flags.need_send_setting} but state.next_grbl_msg={state.next_grbl_msg} \n Please format state.next_grbl_msg.msg_type")
         elif state.flags.need_send_next_move:
             next_move_to_msg()
         else:
@@ -829,15 +833,17 @@ def set_t_grbl():
 
 def send_grbl_settings(grbl_settings):
     for key, value in grbl_settings.items():
-        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.SETTING, msg=f"${key}={value}\n")
+        state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.SETTING, msg=bytes(f"${key}={value}\n",  'utf-8'))
+        state.flags.need_send_setting = True
+        run_grbl_communicator()
         
 
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
 # UNO_SERIAL_PORT_NAME = 'COM5' # Emma
-# UNO_SERIAL_PORT_NAME = 'COM8' # Jules
-UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
+UNO_SERIAL_PORT_NAME = 'COM3' # Jules
+# UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
@@ -1153,7 +1159,7 @@ def main():
 
 def sig_handler(sig, frame):
     print("Program terminated by user. Sending soft reset to GRBL...")
-    uno_serial_port.write(GrblCmd.SOFT_RESET.value)
+    uno_serial_port.write(bytes([0x18]))
     print("Done.")
     exit(0)
 
