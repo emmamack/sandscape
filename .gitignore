@@ -1,1 +1,3 @@
 src/start_main.sh
+logs/
+*.pyc
