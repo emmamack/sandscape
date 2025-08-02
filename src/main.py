@@ -593,21 +593,21 @@ def handle_grbl_response():
     isgood = False
     state.next_grbl_msg.response = state.last_grbl_resp.msg
     if state.last_grbl_resp.msg_type == GrblRespType.RESP_STATUS:
-        if state.next_grbl_msg.msg == GrblCmd.STATUS:
+        if state.next_grbl_msg.msg == GrblCmd.STATUS.value:
             isgood = True
             state.flags.need_status = False
             state.update_from_grbl_msg(state.last_grbl_resp.msg)
     elif state.last_grbl_resp.msg_type == GrblRespType.RESP_OK:
-        if (state.next_grbl_msg.msg == GrblCmd.PING 
-            or state.next_grbl_msg.msg == GrblCmd.HOME
-            or state.next_grbl_msg.msg == GrblCmd.HOLD
-            or state.next_grbl_msg.msg == GrblCmd.RESUME
-            or state.next_grbl_msg.msg == GrblCmd.UNLOCK
+        if (state.next_grbl_msg.msg == GrblCmd.PING.value
+            or state.next_grbl_msg.msg == GrblCmd.HOME.value
+            or state.next_grbl_msg.msg == GrblCmd.HOLD.value
+            or state.next_grbl_msg.msg == GrblCmd.RESUME.value
+            or state.next_grbl_msg.msg == GrblCmd.UNLOCK.value
             or state.next_grbl_msg.msg_type == GrblSendMsgType.MOVE
             or state.next_grbl_msg.msg_type == GrblSendMsgType.SETTING
             or state.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY):
             isgood = True
-            if state.next_grbl_msg.msg == GrblCmd.HOME:
+            if state.next_grbl_msg.msg == GrblCmd.HOME.value:
                 state.flags.need_homing = False
                 state.flags.run_control_loop = True
         # state.flags.expecting_extra_msg = False
@@ -650,9 +650,9 @@ def handle_grbl_response():
         if state.next_grbl_msg.msg_type == GrblSendMsgType.MOVE:
             state.next_move.received = True
             state.flags.need_send_next_move = False
-        if state.next_grbl_msg.msg == GrblCmd.UNLOCK:
+        if state.next_grbl_msg.msg == GrblCmd.UNLOCK.value:
             state.flags.need_unlock = False
-        if state.next_grbl_msg.msg == GrblCmd.SOFT_RESET:
+        if state.next_grbl_msg.msg == GrblCmd.SOFT_RESET.value:
             state.flags.need_reset = False
 
 def format_move(move):
@@ -736,17 +736,19 @@ def gen_msg_from_state():
             state.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.EMPTY)
 
 def grbl_write_next_msg(serial_port):
-    """Converts state.next_msg to bytes and writes to serial port."""
+    """Writes state.next_msg.msg to serial port."""
     x = state.next_grbl_msg.msg
-    if type(x) == GrblCmd:
-        print(f"{time.time():.5f} | writing to grbl: {x.value}")
-        serial_port.write(x.value)
-    elif type(x) == str:
-        print(f"{time.time():.5f} | writing to grbl: {bytes(x, 'utf-8')}")
-        serial_port.write(bytes(x,  'utf-8'))
-    else:
+    # if type(x) == GrblCmd:
+    #     print(f"{time.time():.5f} | writing to grbl: {x.value}")
+    #     serial_port.write(x.value)
+    # elif type(x) == str:
+    #     print(f"{time.time():.5f} | writing to grbl: {bytes(x, 'utf-8')}")
+    #     serial_port.write(bytes(x,  'utf-8'))
+    if type(x) == bytes:
         print(f"{time.time():.5f} | writing to grbl: {x}")
         serial_port.write(x)
+    else:
+        print(f"state.next_grbl_msg.msg{state.next_grbl_msg.msg} is of the type {type(state.next_grbl_msg.msg)} not bytes.")
 
 def run_grbl_communicator(timeout=1):
     """Sends messages to grbl and manages state based on response. Should be the only function that main control loop runs to communicate with grbl."""
@@ -768,7 +770,7 @@ def run_grbl_communicator(timeout=1):
         # if there is still a message to send
         if (state.next_grbl_msg.msg_type != GrblSendMsgType.EMPTY):
             # wait extra long if we're running homing
-            if state.next_grbl_msg.msg == GrblCmd.HOME:
+            if state.next_grbl_msg.msg == GrblCmd.HOME.value:
                 timeout = 60
             grbl_write_next_msg(uno_serial_port) # send state.next_grbl_msg
             state.next_grbl_msg.sent = True
