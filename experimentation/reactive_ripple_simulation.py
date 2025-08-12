@@ -118,6 +118,12 @@ def create_easy_initial_condition_cartesian() -> List[CartesianPt]:
     pts.append(CartesianPt(33, 0))
     return pts
 
+def create_random_initial_condition_cartesian() -> List[CartesianPt]:
+    xs = np.random.uniform(-10, 10, 10)
+    ys = np.random.uniform(-10, 10, 10)
+    pts = [CartesianPt(x=x, y=y) for x, y in zip (xs, ys)]
+    return pts
+
 def interpolate_batch(pts: List[CartesianPt], start_ind, end_ind):
     interpolated_pts = [pts[start_ind]]
     
@@ -309,7 +315,8 @@ def get_next_legal_target(pts, test_ind):
 
 
 
-pts = create_easy_initial_condition_cartesian()
+# pts = create_easy_initial_condition_cartesian()
+pts = create_random_initial_condition_cartesian()
 pts = interpolate_batch(pts, 0, len(pts)) 
 target_pt_ind = 1
 while target_pt_ind <500:
@@ -331,7 +338,4 @@ while target_pt_ind <500:
         break
 
 create_cartesian_plot(pts, pts[target_pt_ind])
-
-# pts = create_easy_initial_condition_polar()
-# pts = interpolate_polar(pts, 10)
-# create_polar_plot(pts)
+# TODO: next up is handling the crossings that come with harder initial condition
