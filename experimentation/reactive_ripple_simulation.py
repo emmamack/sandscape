@@ -44,7 +44,7 @@ def create_polar_plot(pts: List[PolarPt]):
     ax.set_title('Path in Polar Coordinates')
     plt.show()
 
-def create_cartesian_plot(pts: List[CartesianPt]):
+def create_cartesian_plot(pts: List[CartesianPt], highlight_pt: CartesianPt):
     plt.figure(figsize=(8, 8))
     
     # Create rainbow color gradient
@@ -61,6 +61,10 @@ def create_cartesian_plot(pts: List[CartesianPt]):
     xs = [p.x for p in pts]
     ys = [p.y for p in pts]
     plt.scatter(xs, ys, c=colors, s=30, zorder=5)
+    
+    # Highlight the specified point
+    plt.scatter(highlight_pt.x, highlight_pt.y, c='red', s=100, zorder=10, 
+                edgecolors='black', linewidth=2, marker='o')
     
     # Add arrows to show direction
     # for i in range(len(pts)-1):
@@ -103,7 +107,6 @@ def create_easy_initial_condition_polar():
     pts = [PolarPt(r=r, t=t) for r, t in zip(rs, ts)]
     # pts.extend([PolarPt(r=50, t=0), PolarPt(r=90, t=0)])
     pts.extend([PolarPt(r=50, t=0)])
-    print(pts)
     return pts
 
 def create_easy_initial_condition_cartesian() -> List[CartesianPt]:
@@ -196,6 +199,10 @@ def remove_duplicates(pts):
 
 def interpolate_single(p0, p1):
     total_distance = get_dist(p0, p1)
+    
+    if total_distance < INTERP_SPACING*1.5: # make sure we don't add points which are basically duplicates
+        return [p1]
+    
     num_pts = math.floor(total_distance / INTERP_SPACING)
     
     pts_to_add = []
@@ -234,17 +241,12 @@ def get_position_from_target_pt(pts, target_index):
     unit_perp_x = perp_dir_x / magnitude
     unit_perp_y = perp_dir_y / magnitude
     
-    next_pt = CartesianPt(
+    target_pos = CartesianPt(
             x = target_pt.x + unit_perp_x * LINE_SPACING, 
             y = target_pt.y + unit_perp_y * LINE_SPACING
     )
 
-    return next_pt
-
-    # next_pts_interp = interpolate_single(pts[-1], next_pt)
-    # pts.extend(next_pts_interp)
-
-    # return pts
+    return target_pos
 
 def get_dist(p0, p1):
     return math.sqrt((p1.x - p0.x)**2 + (p1.y - p0.y)**2)
@@ -301,7 +303,6 @@ def get_next_legal_target(pts, test_ind):
     found_target = False
     while not found_target:
         test_position = get_position_from_target_pt(pts, test_ind)
-        print(test_position)
         if not check_for_collision(pts, test_position):
             return test_ind, test_position
         test_ind += 1
@@ -311,13 +312,25 @@ def get_next_legal_target(pts, test_ind):
 pts = create_easy_initial_condition_cartesian()
 pts = interpolate_batch(pts, 0, len(pts)) 
 target_pt_ind = 1
-while target_pt_ind < 200:
-    next_pt = get_position_from_target_pt(pts, target_pt_ind)
-    if check_for_collision(pts, next_pt):
-        target_pt_ind, next_pt = get_next_legal_target(pts, target_pt_ind)
-    next_pts_interp = interpolate_single(pts[-1], next_pt)
-    pts.extend(next_pts_interp)
-create_cartesian_plot(pts)
+while target_pt_ind <500:
+    try:
+        print("---------")
+        next_pt = get_position_from_target_pt(pts, target_pt_ind)
+        if check_for_collision(pts, next_pt):
+            print("collision detected")
+            target_pt_ind, next_pt = get_next_legal_target(pts, target_pt_ind)
+        else:
+            target_pt_ind += 1
+        next_pts_interp = interpolate_single(pts[-1], next_pt)
+        print(f"target_pt {target_pt_ind}: {pts[target_pt_ind]}")
+        print(f"base pt: {pts[-1]} | going to pt {next_pt}")
+        print(f"next_pts_interp: {next_pts_interp}")
+        pts.extend(next_pts_interp)
+    except Exception as e:
+        print(f"Failed on target pt {pts[target_pt_ind]} with error {str(e)}")
+        break
+
+create_cartesian_plot(pts, pts[target_pt_ind])
 
 # pts = create_easy_initial_condition_polar()
 # pts = interpolate_polar(pts, 10)
