@@ -1,3 +1,6 @@
 src/start_main.sh
 logs/
+logs/*
 *.pyc
+src/local/
+src/local/*
