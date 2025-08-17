@@ -472,6 +472,9 @@ class SVGMode(Mode):
     svg_file_name: str = "hilbert_d6"
     pt_index: int = 0
 
+    def __repr__(self):
+        return f"SVGMode: {self.svg_file_name}"
+
     def startup(self):
         svg_parser = SVGParser()
         svg_file_path = self.get_svg_filepath()
