@@ -297,7 +297,11 @@ def create_polar_plot(pts: List[PolarPt]):
 
 
 if __name__ == "__main__":
-    svg_file = "dither_cells_2.svg"
+    # svg_file = "dither_cells_2.svg"
+    # svg_file = "pentagon_fractal.svg"
+    # svg_file = "hex_gosper_d4.svg"
+    # svg_file = "dither_wormhole.svg"
+    svg_file = "hilbert_d5.svg"
     
     svg_parser = SVGParser()
     pts = svg_parser.get_pts_from_file(svg_file)
