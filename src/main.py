@@ -469,12 +469,13 @@ class ReactiveSpiralRippleMode(Mode):
 class SVGMode(Mode):
     polar_pts: List[PolarPt] = field(default_factory=list)
     mode_name: str = "svg"
-    svg_file_path: str = "hilbert_d6.svg"
+    svg_file_name: str = "hilbert_d6"
     pt_index: int = 0
 
     def startup(self):
         svg_parser = SVGParser()
-        pts = svg_parser.get_pts_from_file(self.svg_file_path)
+        svg_file_path = self.get_svg_filepath()
+        pts = svg_parser.get_pts_from_file(svg_file_path)
         pts = svg_parser.center(pts)
         self.polar_pts = svg_parser.convert_to_table_axes(pts)
         self.polar_pts = svg_parser.scale(self.polar_pts)
@@ -485,6 +486,9 @@ class SVGMode(Mode):
         if state.grbl.mpos_r > R_MAX-2:
             first_t = self.polar_pts[0].t
             self.polar_pts.insert(0, PolarPt(r=state.grbl.mpos_r, t=first_t))
+    
+    def get_svg_filepath(self):
+        return f"../svgs_production/{self.svg_file_name}.svg"
     
     def next_move(self, move_from):
         if self.pt_index >= len(self.polar_pts):
@@ -844,8 +848,8 @@ def send_grbl_settings(grbl_settings):
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
 # UNO_SERIAL_PORT_NAME = 'COM5' # Emma
-UNO_SERIAL_PORT_NAME = 'COM3' # Jules
-# UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
+# UNO_SERIAL_PORT_NAME = 'COM3' # Jules
+UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
@@ -939,15 +943,15 @@ def main():
     
     modes = [
         SpiralMode(mode_name="spiral out"), 
-        SVGMode(svg_file_path="pentagon_fractal.svg"),
+        SVGMode(svg_file_name="pentagon_fractal"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
         SpiralMode(mode_name="spiral out"), 
-        SVGMode(svg_file_path="hex_gosper_d4.svg"),
+        SVGMode(svg_file_name="hex_gosper_d4"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
-        SVGMode(svg_file_path="dither_wormhole.svg"),
+        SVGMode(svg_file_name="dither_wormhole"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
         SpiralMode(mode_name="spiral out"), 
-        SVGMode(svg_file_path="hilbert_d5.svg"),
+        SVGMode(svg_file_name="hilbert_d5"),
         SpiralMode(mode_name="spiral in", r_dir=-1),
     ]
     mode_index = 0
