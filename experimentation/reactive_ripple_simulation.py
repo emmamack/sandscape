@@ -315,8 +315,8 @@ def get_next_legal_target(pts, test_ind):
 
 
 
-# pts = create_easy_initial_condition_cartesian()
-pts = create_random_initial_condition_cartesian()
+pts = create_easy_initial_condition_cartesian()
+# pts = create_random_initial_condition_cartesian()
 pts = interpolate_batch(pts, 0, len(pts)) 
 target_pt_ind = 1
 while target_pt_ind <500:

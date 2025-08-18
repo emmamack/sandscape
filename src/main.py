@@ -15,6 +15,8 @@ import debugger_window
 from parse_grbl_status import *
 from parse_svg import SVGParser, create_polar_plot, create_cartesian_plot
 
+from local.local_constants import UNO_SERIAL_PORT_NAME, NANO_SERIAL_PORT_NAME
+
 EXPECTED_SENSOR_BYTESTRING_LENGTH = 17
 
 @dataclass
@@ -909,11 +911,11 @@ def send_grbl_settings(grbl_settings):
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
 # UNO_SERIAL_PORT_NAME = 'COM5' # Emma
 # UNO_SERIAL_PORT_NAME = 'COM3' # Jules
-UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
+# UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
-NANO_SERIAL_PORT_NAME = 'COM6'
+# NANO_SERIAL_PORT_NAME = 'COM6'
 NANO_BAUD_RATE = 9600
 
 # --- SAND TABLE INFORMATION ---
