@@ -8,10 +8,11 @@
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_RGBW + NEO_KHZ400);
 
+
 long firstPixelHue = 0;
 
 // ~~~~~~~~~~ Touch sensor stuff ~~~~~~~~~~~~~~~~~~~~~ //
-
+/*
 #define SENSOR_PIN_0 15
 #define SENSOR_PIN_1 14
 #define SENSOR_PIN_2 13
@@ -28,6 +29,24 @@ long firstPixelHue = 0;
 #define SENSOR_PIN_13 2
 #define SENSOR_PIN_14 1
 #define SENSOR_PIN_15 0
+*/
+
+#define SENSOR_PIN_0 15 // b7
+#define SENSOR_PIN_1 14 // b6
+#define SENSOR_PIN_2 13 // b5 
+#define SENSOR_PIN_3 12 // b4
+#define SENSOR_PIN_4 11 // b3
+#define SENSOR_PIN_5 7 // a7
+#define SENSOR_PIN_6 6 // a6
+#define SENSOR_PIN_7 5 // a5
+#define SENSOR_PIN_8 4 // a4
+#define SENSOR_PIN_9 3 // a3
+#define SENSOR_PIN_10 8 // b0
+#define SENSOR_PIN_11 9 // b1
+#define SENSOR_PIN_12 10 // b2
+#define SENSOR_PIN_13 2 // a2
+#define SENSOR_PIN_14 1 // a1
+#define SENSOR_PIN_15 0 // a0
 
 int res0 = 0;
 int res1 = 1;
