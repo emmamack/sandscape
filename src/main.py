@@ -909,13 +909,9 @@ def send_grbl_settings(grbl_settings):
 # === MAIN CONTROL SCRIPT ======================================================
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
-# UNO_SERIAL_PORT_NAME = 'COM5' # Emma
-# UNO_SERIAL_PORT_NAME = 'COM3' # Jules
-# UNO_SERIAL_PORT_NAME = "/dev/ttyACM0" #pi
 UNO_BAUD_RATE = 115200
 
 # --- ARDUINO NANO I/O CONTROLLER CONFIGURATION ---
-# NANO_SERIAL_PORT_NAME = 'COM6'
 NANO_BAUD_RATE = 9600
 
 # --- SAND TABLE INFORMATION ---
@@ -994,7 +990,7 @@ def main():
     state.flags.log_path = False
     state.flags.grbl_homing_on = True
     state.flags.connect_to_uno = True
-    state.flags.connect_to_nano = False
+    state.flags.connect_to_nano = True
 
     # --- SETUP ---
     state.flags_to_setup()
