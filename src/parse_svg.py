@@ -6,21 +6,9 @@ import re
 import bezier
 import numpy as np
 import math
+from utils import *
 
 SEG_LENGTH = 3
-
-@dataclass
-class CartesianPt:
-    x: int
-    y: int
-
-    def to_tuple(self):
-        return (self.x, self.y)
-
-@dataclass
-class PolarPt:
-    r: float
-    t: float
 
 class SVGParser:
     # Class attribute for curve types configuration

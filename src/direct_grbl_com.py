@@ -1,4 +1,5 @@
 from main import *
+from grbl import *
 
 # --- ARDUINO UNO MOTOR CONTROLLER CONFIGURATION ---
 UNO_SERIAL_PORT_NAME = 'COM4'
