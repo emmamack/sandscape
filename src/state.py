@@ -47,32 +47,9 @@ class Flags:
     # flags that reset per loop
     input_change: bool = True
     buffer_space: bool = False
-    # need_reset: bool = False
-    # need_status: bool = False
-    # need_unlock: bool = False
-    # expecting_extra_msg = False
     need_homing: bool = False
     need_calc_next_move: bool = False
-    # need_send_next_move: bool = False
-    # need_send_setting: bool = False
-    # need_get_settings: bool = False
-    # grbl_com_done: bool = False
-    
-    # user set program settings flags
-    # log_commands: bool = True
-    # log_path: bool = True
-    # grbl_homing_on: bool = True
-    # connect_to_uno: bool = True
-    # connect_to_nano: bool = False
-    # send_grbl_settings: bool = True
-    
-    # status flags
-    run_control_loop: bool = False
-
-    # in_setup_phase: bool = False
-    # in_sense_phase: bool = False
-    # in_think_phase: bool = False
-    # in_act_phase: bool = False
+    run_control_loop: bool = True
 
 @dataclass
 class State:
@@ -93,6 +70,8 @@ class State:
     # prev_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
     desired_linspeed: int = 3000 #mm/min
     moves_sent: int = 0
+    loop_sleep_time: float = 0.1
+    loop_count = 0
 
     # last_grbl_resp: GrblRespMsg = field(default_factory=lambda: GrblRespMsg())
     # next_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
@@ -101,8 +80,14 @@ class State:
     path_history: list = field(default_factory=list)
     grbl_command_log: list = field(default_factory=list)
     # curr_grbl_settings: dict = field(default_factory=dict)
-
         
+    def __post_init__(self):
+        self.phase = Phase.SETUP
+        self.flags.run_control_loop = True
+        self.prev_limits_hit.soft_r_min = False
+        self.prev_move = Move(r=0,t=0,t_grbl=0)
+        self.next_move = Move(r=0,t=0,t_grbl=0)
+    
     def __repr__(self):
         return (
             f"State(\n"
@@ -134,8 +119,28 @@ class State:
             self.prev_move = self.next_move
         self.flags.input_change = False
         self.flags.buffer_space = False
-        # self.flags.need_reset = False
-        # self.flags.need_send_next_move = False
+        self.loop_count += 1
+
+    def think_check_if_input_changed(self):
+        # Check if limits_hit have just been hit
+        if self.prev_limits_hit != self.limits_hit:
+            if self.limits_hit.soft_r_min or self.limits_hit.soft_r_max:
+                self.flags.input_change = True
+            if self.limits_hit.hard_r_min or self.limits_hit.hard_r_max:
+                self.flags.input_change = True
+                self.flags.need_homing = True
+        
+        # Check if input (sensors or dials) has changed
+        if (self.prev_control_panel != self.control_panel 
+            and self.prev_touch_sensors != self.touch_sensors):
+            self.flags.input_change = True
+
+    def think_check_if_buffer_space(self):
+        # Check if grbl's buffer has space
+        if self.grbl.planner_buffer >= 1:
+            # PlannerBuffer is 0 when full, 15 when empty
+            # RxBuffer is 0 when full, 128 when empty
+            self.flags.buffer_space = True
 
     def check_move(self, move):
         """Check move validity based on limits and grbl status."""
@@ -158,5 +163,10 @@ class State:
             elif move.r > R_MAX or move.r < R_MIN:
                 print(f"Requested move {move} is out of bounds.")
                 return False
+            
+        if move.t == None and move.t_grbl == None:
+            print(f"Requested move {move} is not filled correctly.")
+            return False
+        
         print(f"Checks passed.")
         return True

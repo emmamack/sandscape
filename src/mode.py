@@ -1,3 +1,4 @@
+# type: ignore
 import serial
 import time
 import math
@@ -20,8 +21,7 @@ class Mode:
     Base class for different operational modes.
     Subclasses define specific behaviors and configurations.
     """
-    state: State
-
+    state: Optional[State] = None
     mode_name: str = "base"  # Should be overridden by subclasses
     segment_length: int = 5
     base_linspeed: int = 9000 #mm/min
@@ -36,9 +36,6 @@ class Mode:
     need_touch_sensors: bool = False
     need_control_panel: bool = False
     need_grbl: bool = True
-
-    def __post_init__(self):
-        self.startup()
         
     def set_next_speed(self):
         if self.state.next_move.r != None:
@@ -66,6 +63,23 @@ class Mode:
         """
         pass
 
+    @classmethod
+    def get_playlist_geometric_patterns(self):
+        return [
+            SpiralMode(mode_name="spiral out"), 
+            SVGMode(svg_file_name="pentagon_fractal"),
+            SpiralMode(mode_name="spiral in", r_dir=-1),
+            SpiralMode(mode_name="spiral out"), 
+            SVGMode(svg_file_name="hex_gosper_d4"),
+            SpiralMode(mode_name="spiral in", r_dir=-1),
+            SVGMode(svg_file_name="dither_wormhole"),
+            SpiralMode(mode_name="spiral in", r_dir=-1),
+            SpiralMode(mode_name="spiral out"), 
+            SVGMode(svg_file_name="hilbert_d5"),
+            SpiralMode(mode_name="spiral in", r_dir=-1),
+        ]
+        
+
 @dataclass
 class HomingSequence(Mode):
     mode_name: str = "homing sequence"
@@ -73,8 +87,19 @@ class HomingSequence(Mode):
     t_zeroing_done: bool = False
 
     def next_move(self, move_from):
-
-        return Move()
+        if self.state.limits_hit.hard_r_min:
+            self.state.flags.need_homing = False
+            self.r_zeroing_done = True
+        if self.state.limits_hit.theta_zero:
+            self.t_zeroing_done = True
+        if self.r_zeroing_done and self.t_zeroing_done:
+            self.done = True
+            return Move()
+        if not self.r_zeroing_done:
+            self.state.flags.need_homing = True
+            return Move(r=-200, t=0, s=3000)
+        if not self.t_zeroing_done:
+            return Move(r=self.state.grbl.mpos_r, t=self.state.grbl.mpos_t+370, s=1000)
 
 
 @dataclass

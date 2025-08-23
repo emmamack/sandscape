@@ -144,15 +144,16 @@ def format_move(move):
     return bytes(f"G1 X{move.r:.2f} Z{move.t_grbl:.2f} F{move.s:.2f}\n",  'utf-8')
 
 @dataclass
-class GrblCommunicator:
-    state: State
-    serial_port: serial.Serial = field(default_factory=lambda: serial.Serial())
-    data_queue: queue.Queue = field(default_factory=lambda: queue.Queue())
-    stop_event: threading.Event = field(default_factory=lambda: threading.Event())
-    reader_thread: threading.Thread = field(default_factory=lambda: threading.Thread())
-    
-    connected: bool = False
+class GrblCommunicator(SerialCommunicator):
+    state: State = field(default_factory=lambda: State())
+    port_name: str = UNO_SERIAL_PORT_NAME
+    baud_rate: int = UNO_BAUD_RATE
+    display_name: str = "Uno"
+
+    run_comm_timeout: float = 1.0
+
     need_reset: bool = False
+    need_ping: bool = False
     need_status: bool = False
     need_unlock: bool = False
     need_send_setting: bool = False
@@ -165,35 +166,25 @@ class GrblCommunicator:
     next_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
     prev_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
 
-    def serial_connect(self):
-        print("Establishing serial connection to Arduino Uno...")
-        self.serial_port = serial.Serial(UNO_SERIAL_PORT_NAME, UNO_BAUD_RATE, timeout=1)
-        time.sleep(2) # Wait for connection to establish!
+    def startup(self):
+        self.serial_connect()
         
-        # Set up grbl monitoring thread
-        self.data_queue = queue.Queue()
-        self.reader_thread = threading.Thread(target=read_from_port, args=(self.serial_port, self.stop_event, self.data_queue, True, "UNO"))
-        self.reader_thread.daemon = True
-        self.reader_thread.start()
-        time.sleep(2)
-        self.connected = True
+        global uno_serial_port
+        uno_serial_port = self.serial_port
 
         print("Resetting and unlocking GRBL...")
-        self.reset()
-        self.unlock()
-
-    def serial_disconnect(self):
-        print("Ending serial connection to Arduino Uno.")
-        self.serial_port.close()
-        self.stop_event.set()
+        self.need_reset = True
+        self.need_unlock = True
+        success = self.run()
+        return success
     
     def reset(self):
-        self.need_reset = False
+        self.need_reset = True
         success = self.run()
         return success
 
     def unlock(self):
-        self.need_unlock = False
+        self.need_unlock = True
         success = self.run()
         return success
         
@@ -201,6 +192,14 @@ class GrblCommunicator:
         print("Checking GRBL status...")
         self.need_status = True
         success = self.run()
+        return success
+
+    def ping(self):
+        print("Pinging GRBL...")
+        self.need_ping = True
+        success = self.run()
+        if not success:
+            print(f"{red('ERROR')}: GRBL did not respond to ping.")
         return success
 
     def send_next_move(self):
@@ -213,7 +212,7 @@ class GrblCommunicator:
         self.need_get_settings = True
         success = self.run()
         if not success:
-            print("ERROR: Could not get settings.")
+            print(f"{red("ERROR")}: Could not get settings.")
             return False
         if self.curr_grbl_settings == grbl_settings:
             print(f"Settings are already up to date.")
@@ -228,18 +227,18 @@ class GrblCommunicator:
                 self.need_send_setting = True
                 success = self.run()
                 if not success:
-                    print(f"ERROR: Could not update setting {self.next_grbl_msg}")
+                    print(f"{red("ERROR")}: Could not update setting {self.next_grbl_msg}")
                     return False
             self.need_get_settings = True
             success = self.run()
             if not success:
-                print("ERROR: Could not get settings after updating.")
+                print(f"{red("ERROR")}: Could not get settings after updating.")
                 return False
             if self.curr_grbl_settings == grbl_settings:
                 print(f"Settings are now up to date.")
                 return True
             else:
-                print(f"ERROR: GRBL settings are still out of date.")
+                print(f"{red("ERROR")}: GRBL settings are still out of date.")
                 return False
 
     def grbl_home(self):
@@ -256,11 +255,12 @@ class GrblCommunicator:
         self.serial_connect()
         return True
     
-    def run(self, timeout=5):
+    def run(self):
         """Sends messages to grbl and manages self based on response. Should be the only function that main control loop runs to communicate with grbl."""
         # global data_queue, serial_port
         # assume all previous msgs are handled
         print("Starting GRBL communicator...")
+        timeout = self.run_comm_timeout
         while True:
             # print(self)
             if self.expecting_extra_msg:
@@ -284,7 +284,7 @@ class GrblCommunicator:
                 end_time = start_time + timeout
                 while True:
                     if time.time() > end_time:
-                        print(f"Grbl communicator timed out after {time.time()-start_time} seconds.")
+                        print(f"{red("ERROR")}: Grbl communicator timed out after {time.time()-start_time} seconds.")
                         self.last_grbl_resp = GrblRespMsg()
                         return False
                     if self.data_queue.empty():
@@ -379,6 +379,7 @@ class GrblCommunicator:
             if self.next_grbl_msg.msg_type == GrblSendMsgType.SETTING:
                 self.need_send_setting = False
 
+
     def update_state_from_grbl_msg(self, grbl_msg):
         """Take uno serial msg and integrate into state."""
         print("Updating status from grbl msg...")
@@ -428,6 +429,11 @@ class GrblCommunicator:
         """Uses self and internal logic to determine which messages to send to GRBL. 
         Sets self.next_grbl_msg"""
 
+        if self.need_ping:
+            self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.PING.value)
+            self.need_ping = False
+            return
+        
         if self.state.phase == Phase.SETUP:
             if (self.need_reset):
                 self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET.value)
@@ -439,7 +445,7 @@ class GrblCommunicator:
                 self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.GET_SETTINGS.value)
             elif self.need_send_setting:
                 if self.next_grbl_msg.msg_type != GrblSendMsgType.SETTING:
-                    print(f"ERROR: self.need_send_setting={self.need_send_setting} but self.next_grbl_msg={self.next_grbl_msg} \n       Please format self.next_grbl_msg.msg_type")
+                    print(f"{red("ERROR")}: self.need_send_setting={self.need_send_setting} but self.next_grbl_msg={self.next_grbl_msg} \n       Please format self.next_grbl_msg.msg_type")
             elif self.state.flags.need_homing:
                 self.homing_next_msg()
             else:

@@ -1,3 +1,4 @@
+# type: ignore
 import xml.etree.ElementTree as et
 from dataclasses import dataclass
 from typing import List

@@ -24,7 +24,8 @@ MARBLE_WAKE_PITCH_MM = 14
 R_MIN = 0
 R_MAX = DISH_RADIUS_MM - MARBLE_DIAMETER_MM/2
 
-
+def red(text):
+    return f"\033[91m{text}\033[0m"
 
 @dataclass
 class Move:
@@ -82,55 +83,101 @@ def polar_to_cartesian_non_object(r, t):
     y = r * math.sin(t)
     return float(x), float(y)
 
-def read_from_port(serial_port, stop_event, data_queue, print_header=True, name=""):
-    """
-    Reads data from the serial port line by line in a dedicated thread.
+@dataclass
+class SerialCommunicator:
+    port_name: str
+    baud_rate: int
+    serial_port: serial.Serial = field(default_factory=lambda: serial.Serial())
+    data_queue: queue.Queue = field(default_factory=lambda: queue.Queue())
+    stop_event: threading.Event = field(default_factory=lambda: threading.Event())
+    reader_thread: threading.Thread = field(default_factory=lambda: threading.Thread())
+    connected: bool = False
+    display_name: str = "<untitled device>"
+    print_header: bool = True
 
-    Args:
-        ser (serial.Serial): The initialized serial port object.
-        stop_event (threading.Event): The event to signal the thread to stop.
-    """
-    last_msg_timestamp = time.time()
-    time_since_last_msg = time.time() - last_msg_timestamp
-    last_msg_timestamp = time.time()
-    print("Reader thread started.")
-    while not stop_event.is_set():
+    def serial_connect(self):
+        print(f"Establishing serial connection to {self.display_name}...")
         try:
-            # The readline() function will block until a newline character
-            # is received, or until the timeout (set during port initialization)
-            # is reached.
-            line = serial_port.readline()
-
-            # If a line was actually read (i.e., not a timeout)
-            if line:
-                # Decode the bytes into a string, using UTF-8 encoding.
-                # 'errors='ignore'' will prevent crashes on decoding errors.
-                # .strip() removes leading/trailing whitespace, including the newline.
-                time_since_last_msg = time.time() - last_msg_timestamp
-                last_msg_timestamp = time.time()
-                decoded_line = line.decode('utf-8', errors='ignore').strip()
-                print_str = ""
-                if print_header:
-                    print_str += f"{time.time():.5f} | {time_since_last_msg:.5f}s | Received"
-                    if name != "":
-                        print_str += f" from {name}: "
-                    else:
-                        print_str += ": "
-                print_str += decoded_line
-                print(print_str)
-                if len(decoded_line) > 0:
-                    data_queue.put(decoded_line)
-
-
-        except serial.SerialException as e:
-            # Handle cases where the serial port is disconnected or an error occurs
-            print(f"Serial port error: {e}. Stopping thread.")
-            break
+            self.serial_port = serial.Serial(self.port_name, self.baud_rate, timeout=1)
+            time.sleep(2) # Wait for connection to establish!
+            self.data_queue = queue.Queue()
+            self.reader_thread = threading.Thread(target=self.read_from_port)
+            self.reader_thread.daemon = True
+            self.reader_thread.start()
+            time.sleep(2)
+            success = self.ping()
+            if success == None:
+                print(f"Ping is not implemented for {self.display_name}. Connection assumed successful.")
+                self.connected = True
+            elif success == True:
+                print(f"Ping successful for {self.display_name}.")
+                self.connected = True
+            else:
+                print(f"{red("ERROR")}: Ping failed for {self.display_name}.")
+                self.connected = False
+                return False
+            print(f"Serial connection to {self.display_name} established.")
+            return True
         except Exception as e:
-            # Handle other potential exceptions
-            print(f"An unexpected error occurred: {e}")
-            if not stop_event.is_set():
-                # Avoid flooding the console with error messages
-                time.sleep(1)
+            print(f"{red("ERROR")}: Failed to establish serial connection to {self.display_name}. {e}")
+            return False
 
-    print("Reader thread finished.")
+    def serial_disconnect(self):
+        print(f"Ending serial connection to {self.display_name}.")
+        self.serial_port.close()
+        self.stop_event.set()
+
+    def ping(self) -> bool: # pyright: ignore[reportReturnType]
+        pass
+
+    def read_from_port(self):
+        """
+        Reads data from the serial port line by line in a dedicated thread.
+
+        Args:
+            ser (serial.Serial): The initialized serial port object.
+            stop_event (threading.Event): The event to signal the thread to stop.
+        """
+        last_msg_timestamp = time.time()
+        time_since_last_msg = time.time() - last_msg_timestamp
+        last_msg_timestamp = time.time()
+        print("Reader thread started.")
+        while not self.stop_event.is_set():
+            try:
+                # The readline() function will block until a newline character
+                # is received, or until the timeout (set during port initialization)
+                # is reached.
+                line = self.serial_port.readline()
+
+                # If a line was actually read (i.e., not a timeout)
+                if line:
+                    # Decode the bytes into a string, using UTF-8 encoding.
+                    # 'errors='ignore'' will prevent crashes on decoding errors.
+                    # .strip() removes leading/trailing whitespace, including the newline.
+                    time_since_last_msg = time.time() - last_msg_timestamp
+                    last_msg_timestamp = time.time()
+                    decoded_line = line.decode('utf-8', errors='ignore').strip()
+                    print_str = ""
+                    if self.print_header:
+                        print_str += f"{time.time():.5f} | {time_since_last_msg:.5f}s | Received"
+                        if self.display_name != "":
+                            print_str += f" from {self.display_name}: "
+                        else:
+                            print_str += ": "
+                    print_str += decoded_line
+                    print(print_str)
+                    if len(decoded_line) > 0:
+                        self.data_queue.put(decoded_line)
+
+            except serial.SerialException as e:
+                # Handle cases where the serial port is disconnected or an error occurs
+                print(f"{red("ERROR")}: Serial port error: {e}. Stopping thread.")
+                break
+            except Exception as e:
+                # Handle other potential exceptions
+                print(f"{red("ERROR")}: An unexpected error occurred: {e}")
+                if not self.stop_event.is_set():
+                    # Avoid flooding the console with error messages
+                    time.sleep(1)
+
+        print("Reader thread finished.")

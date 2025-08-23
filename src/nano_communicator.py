@@ -10,21 +10,23 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Union
 from enum import Enum
 
+from local.local_constants import UNO_SERIAL_PORT_NAME, NANO_SERIAL_PORT_NAME
 from utils import *
 from state import *
 
 @dataclass
-class NanoCommunicator:
-    state: State
-    nano_serial_port: serial.Serial
-    nano_data_queue: queue.Queue
+class NanoCommunicator(SerialCommunicator):
+    state: State = field(default_factory=lambda: State())
+    port_name: str = NANO_SERIAL_PORT_NAME
+    baud_rate: int = NANO_BAUD_RATE
+    display_name: str = "Nano"
 
     def update_state(self):
-        if not self.nano_data_queue.empty():
+        if not self.data_queue.empty():
             # Get the most recent item
             raw = None
-            while not self.nano_data_queue.empty():
-                raw = self.nano_data_queue.get()
+            while not self.data_queue.empty():
+                raw = self.data_queue.get()
                 
             if raw and len(raw) == EXPECTED_SENSOR_BYTESTRING_LENGTH:
                 touch_sensors = [int(char) for char in raw[0:16]]
