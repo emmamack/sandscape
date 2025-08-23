@@ -15,7 +15,7 @@ import debugger_window
 from parse_grbl_status import *
 from parse_svg import SVGParser, create_polar_plot, create_cartesian_plot
 
-from local.local_constants import UNO_SERIAL_PORT_NAME, NANO_SERIAL_PORT_NAME, LOG_COMMANDS, LOG_PATH, GRBL_HOMING_ON, CONNECT_TO_UNO, CONNECT_TO_NANO, SYNC_GRBL_SETTINGS
+from local.local_constants import UNO_SERIAL_PORT_NAME, NANO_SERIAL_PORT_NAME, LOG_COMMANDS, LOG_PATH, GRBL_HOMING_ON, CONNECT_TO_UNO, CONNECT_TO_NANO, SYNC_GRBL_SETTINGS, CUSTOM_HOMING_ON
 from utils import *
 from state import *
 from grbl import *
@@ -32,18 +32,16 @@ from mode import *
 # CONNECT_TO_NANO = False
 # SYNC_GRBL_SETTINGS = True
 
+uno_serial_port = serial.Serial() # global context for sig_handler grbl stop on Ctrl+C
+
 @dataclass
-class SandscapeController:
+class Sandscape:
     state: State
     mode: Mode
     grbl_comm: GrblCommunicator
     nano_comm: NanoCommunicator
 
-
-
 def main():
-    global uno_serial_port
-    # global grbl_data_queue
     signal.signal(signal.SIGINT, sig_handler)
     
     # --- SETUP ---
@@ -92,44 +90,28 @@ def main():
         print("Not connecting to Arduino Nano.")
 
     if CONNECT_TO_UNO:
-        print("Establishing serial connection to Arduino Uno...")
-        uno_serial_port = serial.Serial(UNO_SERIAL_PORT_NAME, UNO_BAUD_RATE, timeout=1)
-        time.sleep(2) # Wait for connection to establish!
-        
-        # Set up grbl monitoring thread
-        grbl_data_queue = queue.Queue()
-        grbl_reader_thread = threading.Thread(target=read_from_port, args=(uno_serial_port, stop_event, grbl_data_queue, True, "UNO"))
-        grbl_reader_thread.daemon = True
-        grbl_reader_thread.start()
-        time.sleep(2)
-        grbl_comm = GrblCommunicator(state=state, uno_serial_port=uno_serial_port, grbl_data_queue=grbl_data_queue)
-        
-        print("Resetting and unlocking GRBL...")
-        grbl_comm.reset()
-        grbl_comm.unlock()
+        grbl_comm = GrblCommunicator(state=state)
+        grbl_comm.serial_connect()
 
         if SYNC_GRBL_SETTINGS:
-            print("Sending GRBL settings...")
             success = grbl_comm.sync_settings()
             if not success:
                 print("ERROR: GRBL settings sync failed. Ending program.")
                 return
 
-        print("Checking GRBL status...")
         grbl_comm.status()
 
         if GRBL_HOMING_ON:
-            print("Starting homing...")
-            success = grbl_comm.home()
+            success = grbl_comm.grbl_home()
             if not success:
-                
                 print("ERROR: Homing sequence failed. Stopping GRBL, getting status, and ending program.")
-                uno_serial_port.write(bytes([0x18]))
+                grbl_comm.serial_port.write(bytes([0x18])) # no-checks immediate stop
                 grbl_comm.status()
                 return
-
-            print("Checking GRBL status...")
             grbl_comm.status()
+
+        if CUSTOM_HOMING_ON:
+            mode = HomingSequence(state)
 
     else:
         print("Not connecting to Arduino Uno.")
@@ -276,9 +258,12 @@ def main():
         print(f"Data saved to {filename}")
 
 def sig_handler(sig, frame):
-    print("Program terminated by user. Sending soft reset to GRBL...")
-    uno_serial_port.write(bytes([0x18]))
-    print("Done.")
+    if CONNECT_TO_UNO:
+        print("Program terminated by user. Sending soft reset to GRBL...")
+        uno_serial_port.write(bytes([0x18]))
+        print("Done.")
+    else:
+        print(f"Program terminated by user. CONNECT_TO_UNO={CONNECT_TO_UNO} so no GRBL stop command required.")
     exit(0)
 
 if __name__ == "__main__":

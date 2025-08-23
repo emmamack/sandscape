@@ -66,6 +66,16 @@ class Mode:
         """
         pass
 
+@dataclass
+class HomingSequence(Mode):
+    mode_name: str = "homing sequence"
+    r_zeroing_done: bool = False
+    t_zeroing_done: bool = False
+
+    def next_move(self, move_from):
+
+        return Move()
+
 
 @dataclass
 class SpiralMode(Mode):
