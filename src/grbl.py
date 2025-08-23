@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Union
 from enum import Enum
 
+from local.local_constants import UNO_SERIAL_PORT_NAME, NANO_SERIAL_PORT_NAME, LOG_COMMANDS, LOG_PATH, GRBL_HOMING_ON, CONNECT_TO_UNO, CONNECT_TO_NANO, SYNC_GRBL_SETTINGS
 from utils import *
 from parse_grbl_status import *
 from state import *
@@ -145,22 +146,46 @@ def format_move(move):
 @dataclass
 class GrblCommunicator:
     state: State
-    uno_serial_port: serial.Serial
-    grbl_data_queue: queue.Queue
+    serial_port: serial.Serial = field(default_factory=lambda: serial.Serial())
+    data_queue: queue.Queue = field(default_factory=lambda: queue.Queue())
+    stop_event: threading.Event = field(default_factory=lambda: threading.Event())
+    reader_thread: threading.Thread = field(default_factory=lambda: threading.Thread())
     
+    connected: bool = False
     need_reset: bool = False
     need_status: bool = False
     need_unlock: bool = False
     need_send_setting: bool = False
     need_get_settings: bool = False
     need_send_next_move: bool = False
-
     expecting_extra_msg: bool = False
 
     curr_grbl_settings: dict = field(default_factory=dict)
     last_grbl_resp: GrblRespMsg = field(default_factory=lambda: GrblRespMsg())
     next_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
     prev_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())
+
+    def serial_connect(self):
+        print("Establishing serial connection to Arduino Uno...")
+        self.serial_port = serial.Serial(UNO_SERIAL_PORT_NAME, UNO_BAUD_RATE, timeout=1)
+        time.sleep(2) # Wait for connection to establish!
+        
+        # Set up grbl monitoring thread
+        self.data_queue = queue.Queue()
+        self.reader_thread = threading.Thread(target=read_from_port, args=(self.serial_port, self.stop_event, self.data_queue, True, "UNO"))
+        self.reader_thread.daemon = True
+        self.reader_thread.start()
+        time.sleep(2)
+        self.connected = True
+
+        print("Resetting and unlocking GRBL...")
+        self.reset()
+        self.unlock()
+
+    def serial_disconnect(self):
+        print("Ending serial connection to Arduino Uno.")
+        self.serial_port.close()
+        self.stop_event.set()
     
     def reset(self):
         self.need_reset = False
@@ -173,6 +198,7 @@ class GrblCommunicator:
         return success
         
     def status(self):
+        print("Checking GRBL status...")
         self.need_status = True
         success = self.run()
         return success
@@ -183,6 +209,7 @@ class GrblCommunicator:
         return success
 
     def sync_settings(self, grbl_settings=GRBL_SETTINGS):
+        print("Syncing GRBL settings...")
         self.need_get_settings = True
         success = self.run()
         if not success:
@@ -215,16 +242,23 @@ class GrblCommunicator:
                 print(f"ERROR: GRBL settings are still out of date.")
                 return False
 
-    def home(self):
+    def grbl_home(self):
+        print("Starting GRBL's built-in homing...")
         self.state.flags.need_homing = True
         success = self.run()
         if self.state.flags.run_control_loop:
             self.state.flags.run_control_loop = success
         return success
     
+    def hard_reset(self):
+        """Disconnect and recconnect serial to zero MPos values"""
+        self.serial_disconnect()
+        self.serial_connect()
+        return True
+    
     def run(self, timeout=5):
         """Sends messages to grbl and manages self based on response. Should be the only function that main control loop runs to communicate with grbl."""
-        # global grbl_data_queue, uno_serial_port
+        # global data_queue, serial_port
         # assume all previous msgs are handled
         print("Starting GRBL communicator...")
         while True:
@@ -232,9 +266,9 @@ class GrblCommunicator:
             if self.expecting_extra_msg:
                 time.sleep(0.1)
             # handle missed messages
-            while not self.grbl_data_queue.empty():
-                msg_txt = self.grbl_data_queue.get()
-                self.grbl_data_queue.task_done()
+            while not self.data_queue.empty():
+                msg_txt = self.data_queue.get()
+                self.data_queue.task_done()
                 self.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
                 self.handle_grbl_response()
             # generate self.next_grbl_msg
@@ -253,11 +287,11 @@ class GrblCommunicator:
                         print(f"Grbl communicator timed out after {time.time()-start_time} seconds.")
                         self.last_grbl_resp = GrblRespMsg()
                         return False
-                    if self.grbl_data_queue.empty():
+                    if self.data_queue.empty():
                         time.sleep(0.02)
                     else:
-                        msg_txt = self.grbl_data_queue.get()
-                        self.grbl_data_queue.task_done()
+                        msg_txt = self.data_queue.get()
+                        self.data_queue.task_done()
                         self.last_grbl_resp = grbl_resp_msg_txt_to_obj(msg_txt)
                         break
                 self.handle_grbl_response()
@@ -443,7 +477,7 @@ class GrblCommunicator:
         #     serial_port.write(bytes(x,  'utf-8'))
         if type(x) == bytes:
             print(f"{time.time():.5f} | writing to grbl: {x}")
-            self.uno_serial_port.write(x)
+            self.serial_port.write(x)
         else:
             print(f"self.next_grbl_msg.msg{self.next_grbl_msg.msg} is of the type {type(self.next_grbl_msg.msg)} not bytes.")
 
