@@ -32,12 +32,12 @@ from mode import *
 # CONNECT_TO_NANO = False
 # SYNC_GRBL_SETTINGS = True
 
-@dataclass
-class SandscapeController:
-    state: State
-    mode: Mode
-    grbl_comm: GrblCommunicator
-    nano_comm: NanoCommunicator
+# @dataclass
+# class SandscapeController:
+#     state: State
+#     mode: Mode
+#     grbl_comm: GrblCommunicator
+#     nano_comm: NanoCommunicator
 
 
 
