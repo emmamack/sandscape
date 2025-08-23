@@ -122,8 +122,10 @@ def main():
             print("Starting homing...")
             success = grbl_comm.home()
             if not success:
-                print("ERROR: Homing sequence failed. Stopping GRBL and ending program.")
+                
+                print("ERROR: Homing sequence failed. Stopping GRBL, getting status, and ending program.")
                 uno_serial_port.write(bytes([0x18]))
+                grbl_comm.status()
                 return
 
             print("Checking GRBL status...")

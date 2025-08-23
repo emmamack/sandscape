@@ -226,7 +226,7 @@ class GrblCommunicator:
         """Sends messages to grbl and manages self based on response. Should be the only function that main control loop runs to communicate with grbl."""
         # global grbl_data_queue, uno_serial_port
         # assume all previous msgs are handled
-        print("Running GRBL communicator...")
+        print("Starting GRBL communicator...")
         while True:
             # print(self)
             if self.expecting_extra_msg:
@@ -250,7 +250,7 @@ class GrblCommunicator:
                 end_time = start_time + timeout
                 while True:
                     if time.time() > end_time:
-                        print("Grbl communicator timed out.")
+                        print(f"Grbl communicator timed out after {time.time()-start_time} seconds.")
                         self.last_grbl_resp = GrblRespMsg()
                         return False
                     if self.grbl_data_queue.empty():
@@ -265,6 +265,7 @@ class GrblCommunicator:
                 self.generate_msg() # generates empty msg if no further com needed
             if (self.next_grbl_msg.msg_type == GrblSendMsgType.EMPTY 
                 and not self.expecting_extra_msg):
+                print("Grbl communicator finished sucessfully.")
                 return True
     
     def handle_grbl_response(self):
@@ -394,8 +395,7 @@ class GrblCommunicator:
         Sets self.next_grbl_msg"""
 
         if self.state.phase == Phase.SETUP:
-            if (self.need_reset 
-                and self.last_grbl_resp.msg_type == GrblRespType.RESP_ALARM):
+            if (self.need_reset):
                 self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.SOFT_RESET.value)
             elif self.need_status:
                 self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.STATUS.value)
