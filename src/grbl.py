@@ -511,4 +511,8 @@ class GrblCommunicator(SerialCommunicator):
         #     else:
         #         self.prev_move.t = self.prev_move.t_grbl
 
+    def direct_write(self, msg : bytes):
+        """For testing purposes only, not for use in main loop."""
+        self.serial_port.write(msg)
+
     

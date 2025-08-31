@@ -95,7 +95,7 @@ class SerialCommunicator:
     display_name: str = "<untitled device>"
     print_header: bool = True
 
-    def serial_connect(self):
+    def serial_connect(self, do_ping=True):
         print(f"Establishing serial connection to {self.display_name}...")
         try:
             self.serial_port = serial.Serial(self.port_name, self.baud_rate, timeout=1)
@@ -105,19 +105,22 @@ class SerialCommunicator:
             self.reader_thread.daemon = True
             self.reader_thread.start()
             time.sleep(2)
-            success = self.ping()
-            if success == None:
-                print(f"Ping is not implemented for {self.display_name}. Connection assumed successful.")
-                self.connected = True
-            elif success == True:
-                print(f"Ping successful for {self.display_name}.")
-                self.connected = True
+            if do_ping:
+                success = self.ping()
+                if success == None:
+                    print(f"Ping is not implemented for {self.display_name}. Connection assumed successful.")
+                    self.connected = True
+                elif success == True:
+                    print(f"Ping successful for {self.display_name}.")
+                    self.connected = True
+                else:
+                    print(f"{red('ERROR')}: Ping failed for {self.display_name}.")
+                    self.connected = False
+                    return False
+                print(f"Serial connection to {self.display_name} established.")
+                return True
             else:
-                print(f"{red('ERROR')}: Ping failed for {self.display_name}.")
-                self.connected = False
-                return False
-            print(f"Serial connection to {self.display_name} established.")
-            return True
+                print(f"Skipping ping for {self.display_name}.")
         except Exception as e:
             print(f"{red('ERROR')}: Failed to establish serial connection to {self.display_name}. {e}")
             return False
