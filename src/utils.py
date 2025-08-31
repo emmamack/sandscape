@@ -113,13 +113,13 @@ class SerialCommunicator:
                 print(f"Ping successful for {self.display_name}.")
                 self.connected = True
             else:
-                print(f"{red("ERROR")}: Ping failed for {self.display_name}.")
+                print(f"{red('ERROR')}: Ping failed for {self.display_name}.")
                 self.connected = False
                 return False
             print(f"Serial connection to {self.display_name} established.")
             return True
         except Exception as e:
-            print(f"{red("ERROR")}: Failed to establish serial connection to {self.display_name}. {e}")
+            print(f"{red('ERROR')}: Failed to establish serial connection to {self.display_name}. {e}")
             return False
 
     def serial_disconnect(self):
@@ -171,11 +171,11 @@ class SerialCommunicator:
 
             except serial.SerialException as e:
                 # Handle cases where the serial port is disconnected or an error occurs
-                print(f"{red("ERROR")}: Serial port error: {e}. Stopping thread.")
+                print(f"{red('ERROR')}: Serial port error: {e}. Stopping thread.")
                 break
             except Exception as e:
                 # Handle other potential exceptions
-                print(f"{red("ERROR")}: An unexpected error occurred: {e}")
+                print(f"{red('ERROR')}: An unexpected error occurred: {e}")
                 if not self.stop_event.is_set():
                     # Avoid flooding the console with error messages
                     time.sleep(1)

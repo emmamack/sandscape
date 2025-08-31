@@ -212,7 +212,7 @@ class GrblCommunicator(SerialCommunicator):
         self.need_get_settings = True
         success = self.run()
         if not success:
-            print(f"{red("ERROR")}: Could not get settings.")
+            print(f"{red('ERROR')}: Could not get settings.")
             return False
         if self.curr_grbl_settings == grbl_settings:
             print(f"Settings are already up to date.")
@@ -227,18 +227,18 @@ class GrblCommunicator(SerialCommunicator):
                 self.need_send_setting = True
                 success = self.run()
                 if not success:
-                    print(f"{red("ERROR")}: Could not update setting {self.next_grbl_msg}")
+                    print(f"{red('ERROR')}: Could not update setting {self.next_grbl_msg}")
                     return False
             self.need_get_settings = True
             success = self.run()
             if not success:
-                print(f"{red("ERROR")}: Could not get settings after updating.")
+                print(f"{red('ERROR')}: Could not get settings after updating.")
                 return False
             if self.curr_grbl_settings == grbl_settings:
                 print(f"Settings are now up to date.")
                 return True
             else:
-                print(f"{red("ERROR")}: GRBL settings are still out of date.")
+                print(f"{red('ERROR')}: GRBL settings are still out of date.")
                 return False
 
     def grbl_home(self):
@@ -284,7 +284,7 @@ class GrblCommunicator(SerialCommunicator):
                 end_time = start_time + timeout
                 while True:
                     if time.time() > end_time:
-                        print(f"{red("ERROR")}: Grbl communicator timed out after {time.time()-start_time} seconds.")
+                        print(f"{red('ERROR')}: Grbl communicator timed out after {time.time()-start_time} seconds.")
                         self.last_grbl_resp = GrblRespMsg()
                         return False
                     if self.data_queue.empty():
@@ -445,7 +445,7 @@ class GrblCommunicator(SerialCommunicator):
                 self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.CMD, msg=GrblCmd.GET_SETTINGS.value)
             elif self.need_send_setting:
                 if self.next_grbl_msg.msg_type != GrblSendMsgType.SETTING:
-                    print(f"{red("ERROR")}: self.need_send_setting={self.need_send_setting} but self.next_grbl_msg={self.next_grbl_msg} \n       Please format self.next_grbl_msg.msg_type")
+                    print(f"{red('ERROR')}: self.need_send_setting={self.need_send_setting} but self.next_grbl_msg={self.next_grbl_msg} \n       Please format self.next_grbl_msg.msg_type")
             elif self.state.flags.need_homing:
                 self.homing_next_msg()
             else:

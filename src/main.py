@@ -90,7 +90,7 @@ class Sandscape:
             if SYNC_GRBL_SETTINGS:
                 success = self.grbl_comm.sync_settings()
                 if not success:
-                    print(f"{red("ERROR")}: GRBL settings sync failed. Ending program.")
+                    print(f"{red('ERROR')}: GRBL settings sync failed. Ending program.")
                     return
 
             self.grbl_comm.status()
@@ -102,7 +102,7 @@ class Sandscape:
                 if GRBL_HOMING_ON: # run GRBL's built in homing sequence (r homing only)
                     success = self.grbl_comm.grbl_home()
                     if not success:
-                        print(f"{red("ERROR")}: GRBL's built-in homing sequence failed. Stopping GRBL, getting status, and ending program.")
+                        print(f"{red('ERROR')}: GRBL's built-in homing sequence failed. Stopping GRBL, getting status, and ending program.")
                         self.grbl_comm.serial_port.write(bytes([0x18])) # no-checks immediate stop
                         self.grbl_comm.status()
                         return
@@ -247,7 +247,7 @@ def main():
 #         if SYNC_GRBL_SETTINGS:
 #             success = grbl_comm.sync_settings()
 #             if not success:
-#                 print(f"{red("ERROR")}: GRBL settings sync failed. Ending program.")
+#                 print(f"{red('ERROR')}: GRBL settings sync failed. Ending program.")
 #                 return
 
 #         grbl_comm.status()
@@ -255,7 +255,7 @@ def main():
 #         if GRBL_HOMING_ON: # run GRBL's built in homing sequence (r homing only)
 #             success = grbl_comm.grbl_home()
 #             if not success:
-#                 print(f"{red("ERROR")}: GRBL's built-in homing sequence failed. Stopping GRBL, getting status, and ending program.")
+#                 print(f"{red('ERROR')}: GRBL's built-in homing sequence failed. Stopping GRBL, getting status, and ending program.")
 #                 grbl_comm.serial_port.write(bytes([0x18])) # no-checks immediate stop
 #                 grbl_comm.status()
 #                 return
