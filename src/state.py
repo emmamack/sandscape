@@ -71,7 +71,8 @@ class State:
     desired_linspeed: int = 3000 #mm/min
     moves_sent: int = 0
     loop_sleep_time: float = 0.1
-    loop_count = 0
+    loop_count: int = 0
+    sharp_compensation_factor: float = DEFAULT_SHARP_COMPENSATION_FACTOR_MM
 
     # last_grbl_resp: GrblRespMsg = field(default_factory=lambda: GrblRespMsg())
     # next_grbl_msg: GrblSendMsg = field(default_factory=lambda: GrblSendMsg())

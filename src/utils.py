@@ -9,6 +9,7 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional, List, Union
 from enum import Enum
+import copy
 
 UNO_BAUD_RATE = 115200
 NANO_BAUD_RATE = 9600
@@ -23,9 +24,19 @@ MARBLE_DIAMETER_MM = 14
 MARBLE_WAKE_PITCH_MM = 14
 R_MIN = 0
 R_MAX = DISH_RADIUS_MM - MARBLE_DIAMETER_MM/2
+DEFAULT_SHARP_COMPENSATION_FACTOR_MM = 1
 
 def red(text):
     return f"\033[91m{text}\033[0m"
+
+def yellow(text):
+    return f"\033[93m{text}\033[0m"
+
+def print_error(text="Undefined error"):
+    print(f"{red('ERROR')}: {text}")
+
+def print_warning(text="Undefined warning"):
+    print(f"{yellow('WARNING')}: {text}")
 
 @dataclass
 class Move:
@@ -47,28 +58,180 @@ class Move:
         s_str = "None" if self.s == None else f"{self.s:.3f}"
         t_str = "None" if self.t_grbl == None else f"{self.t:.3f}"
         return f"Move(r={r_str}, t={t_str}, s={s_str}, t_grbl={t_str}, received={self.received})"
+    
+    @property
+    def x(self):
+        if self.r != None:
+            if self.t_grbl != None:
+                return polar_to_cartesian_non_object(self.r, self.t_grbl)[0]
+            elif self.t != None:
+                return polar_to_cartesian_non_object(self.r, self.t)[0]
+            else: 
+                print_error(f"{self} is not filled properly to return x.")
+    
+    @property
+    def y(self):
+        if self.r != None:
+            if self.t_grbl != None:
+                return polar_to_cartesian_non_object(self.r, self.t_grbl)[1]
+            elif self.t != None:
+                return polar_to_cartesian_non_object(self.r, self.t)[1]
+            else: 
+                print_error(f"{self} is not filled properly to return y.")
+
+    @property
+    def xy(self):
+        return (self.x, self.y)
+    @xy.setter
+    def xy(self, new_xy):
+        if new_xy[0] != None and new_xy[1] != None:
+            self.r, self.t = cartesian_to_polar_non_object(new_xy[0], new_xy[1])
+
+    @property
+    def rt(self):
+        return (self.r, self.t)
+    @rt.setter
+    def rt(self, new_rt):
+        self.r = new_rt[0]
+        self.t = new_rt[1]
 
 @dataclass
 class CartesianPt:
-    x: int
-    y: int
-
+    x: float
+    y: float
     def to_tuple(self):
         return (self.x, self.y)
+    @property
+    def r(self):
+        return cartesian_to_polar_non_object(self.x, self.y)[0]
+    @property
+    def t(self):
+        return cartesian_to_polar_non_object(self.x, self.y)[1]
+    
+    @property
+    def xy(self):
+        return (self.x, self.y)
+    @xy.setter
+    def xy(self, new_xy):
+        self.x = new_xy[0]
+        self.y = new_xy[1]
+
+    @property
+    def rt(self):
+        return (self.r, self.t)
+    @rt.setter
+    def rt(self, new_rt):
+        if self.r != None and self.t != None:
+            x, y = polar_to_cartesian_non_object(new_rt[0], new_rt[1])
+            self.x = x
+            self.y = y
+        else:
+            print_error(f"Could not set rt in {self} with r={new_rt[0]} and t={new_rt[1]}.")
 
 @dataclass
 class PolarPt:
     r: float
     t: float
+    def to_tuple(self):
+        return (self.r, self.t)
+    @property
+    def x(self):
+        return polar_to_cartesian_non_object(self.r, self.t)[0]
+    @property
+    def y(self):
+        return polar_to_cartesian_non_object(self.r, self.t)[1]
+    
+    @property
+    def xy(self):
+        return (self.x, self.y)
+    @xy.setter
+    def xy(self, new_xy):
+        if self.x != None and self.y != None:
+            self.r, self.t = cartesian_to_polar_non_object(new_xy[0], new_xy[1])
+        else:
+            print_error(f"Could not set xy in {self} with x={new_xy[0]} and y={new_xy[1]}.")
 
-def normalize_vector(xy):
-    length = math.sqrt(xy[0]**2 + xy[1]**2)
-    return [xy[0]/length, xy[1]/length]
+    @property
+    def rt(self):
+        return (self.r, self.t)
+    @rt.setter
+    def rt(self, new_rt):
+        self.r = new_rt[0]
+        self.t = new_rt[1]
 
-def get_direction(curr_xy, next_xy):
-    dx = next_xy[0] - curr_xy[0]
-    dy = next_xy[1] - curr_xy[1]
-    return normalize_vector([dx, dy])
+@dataclass
+class Point:
+    x: Optional[float] = None
+    y: Optional[float] = None
+    r: Optional[float] = None
+    t: Optional[float] = None
+    
+    def __post_init__(self):
+        if self.x != None and self.y != None:
+            self.r, self.t = cartesian_to_polar_non_object(self.x, self.y)
+        elif self.r != None and self.t != None:
+            self.x, self.y = polar_to_cartesian_non_object(self.r, self.t)
+        else:
+            self.make_empty() # make sure parameters are not incorrectly set like Point(r=1,x=3)
+    
+    def is_empty(self):
+        if (self.x == None or self.y == None) and (self.r == None or self.t == None):
+            return True
+        else:
+            return False
+    
+    def make_empty(self):
+        self.x = None
+        self.y = None
+        self.r = None
+        self.t = None
+
+    @property
+    def xy(self):
+        return (self.x, self.y)
+    @xy.setter
+    def xy(self, new_xy):
+        self.x = new_xy[0]
+        self.y = new_xy[1]
+        if self.x != None and self.y != None:
+            self.r, self.t = cartesian_to_polar_non_object(new_xy[0], new_xy[1])
+        else:
+            print_error(f"Could not set xy in {self} with x={new_xy[0]} and y={new_xy[1]}.")
+
+    @property
+    def rt(self):
+        return (self.r, self.t)
+    @rt.setter
+    def rt(self, new_rt):
+        self.r = new_rt[0]
+        self.t = new_rt[1]
+        if self.r != None and self.t != None:
+            self.x, self.y = polar_to_cartesian_non_object(new_rt[0], new_rt[1])
+        else:
+            print_error(f"Could not set rt in {self} with r={new_rt[0]} and t={new_rt[1]}.")
+
+def move_to_point(move: Move):
+    if move.r != None and move.t_grbl != None:
+        point = Point(r=move.r, t=move.t_grbl)
+    elif move.r != None and move.t != None:
+        point = Point(r=move.r, t=move.t)
+    else:
+        point = Point()
+    return point
+
+def point_to_move(point: Point):
+    return Move(r=point.r, t=point.t)
+
+def normalize_vector(x, y):
+    length = math.sqrt(x**2 + y**2)
+    if length == 0:
+        return [0, 0]
+    return [x/length, y/length]
+
+def get_direction(x1, y1, x2, y2):
+    dx = x2 - x1
+    dy = y2 - y1
+    return normalize_vector(dx, dy)
 
 def cartesian_to_polar_non_object(x, y):
     r = math.sqrt(x**2 + y**2)
@@ -76,12 +239,25 @@ def cartesian_to_polar_non_object(x, y):
     return float(r), float(t)
 
 def polar_to_cartesian_non_object(r, t):
-    print(f">>>>> r: {r}")
-    print(f">>>>> t: {t}")
     t = t*math.pi/180
     x = r * math.cos(t)
     y = r * math.sin(t)
     return float(x), float(y)
+
+def sharp_compensate(new_point, prev_point, correction_factor_mm=DEFAULT_SHARP_COMPENSATION_FACTOR_MM):
+    """
+    Create sharp corners on lagging path by adjusting new_point by correction_factor_mm in the direction of prev_point.
+    Args:
+        new_point: a Move, Point, or other object with a fetchable x and y attribute and an xy.setter function.
+        prev_point: a Move, Point, or other object with a fetchable x and y attribute.
+
+    """
+    direction = get_direction(prev_point.x, prev_point.y, new_point.x, new_point.y)
+    offset_x = direction[0] * correction_factor_mm
+    offset_y = direction[1] * correction_factor_mm
+    return_point = copy.deepcopy(new_point)
+    return_point.xy = (new_point.x + offset_x, new_point.y + offset_y)
+    return return_point
 
 @dataclass
 class SerialCommunicator:

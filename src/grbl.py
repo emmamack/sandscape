@@ -405,9 +405,11 @@ class GrblCommunicator(SerialCommunicator):
     def next_move_to_msg(self):
         """Check move validity based on limits and grbl status, then make next msg next_move."""
         self.set_t_grbl()
-        # If r limit has been hit, next move needs to be in oppsite direction
         if self.state.next_move != None and not self.state.next_move.is_empty():
             if self.state.check_move(self.state.next_move):
+                compensated_move = sharp_compensate(self.state.next_move, self.state.prev_move)
+                if self.state.check_move(compensated_move):
+                    self.state.next_move = compensated_move
                 self.next_grbl_msg = GrblSendMsg(msg_type=GrblSendMsgType.MOVE, msg=format_move(self.state.next_move))
                 print(f"Next msg: {self.next_grbl_msg}")
         else:
